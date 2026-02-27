@@ -37,7 +37,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
 
     # Custom Apps
-    'models.apps.ModelsConfig'
+    'models.apps.ModelsConfig',
+    "corsheaders",
 ]
 
 AUTH_USER_MODEL = "models.User"
@@ -48,6 +49,7 @@ AUTH_USER_MODEL = "models.User"
 # ==================================================
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
