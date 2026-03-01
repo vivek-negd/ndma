@@ -20,37 +20,45 @@ class Permission(BaseModel):
 
 
 class Role(BaseModel):
-    """Role model - NDMA RBAC roles"""
-    ROLE_CHOICES = (
-        ('SUPER_ADMIN', 'Super Admin'),
-        ('TECHNICAL_ADMIN', 'Technical Admin'),
-        ('NDMA_ADMIN', 'NDMA Admin'),
-        ('SDMA_ADMIN', 'SDMA Admin'),
-        ('DDMA_NODAL_OFFICER', 'DDMA Nodal Officer'),
-        ('TRAINING_INSTITUTE', 'Training Institute'),
-        ('YOUTH_ORG_ADMIN', 'Youth Organisation Admin'),
-        ('VOLUNTEER', 'Volunteer'),
-        ('PUBLIC_USER', 'Public User'),
-    )
-    
-    name = models.CharField(max_length=100, choices=ROLE_CHOICES, unique=True)
+    """Role model - supports system and custom roles"""
+
+    name = models.CharField(max_length=100, unique=True)
     description = models.TextField()
     permissions = models.ManyToManyField(Permission, blank=True, related_name='roles')
     is_active = models.BooleanField(default=True)
     hierarchy_level = models.IntegerField(default=0)
+    is_system_role = models.BooleanField(default=False)
     
     class Meta:
         db_table = 'roles'
         ordering = ['hierarchy_level']
     
     def __str__(self):
-        return self.get_name_display()
+        return self.name
     
     def has_permission(self, permission_code):
         return self.permissions.filter(code=permission_code).exists()
     
     def get_all_permissions(self):
         return list(self.permissions.values_list('code', flat=True))
+
+
+class UserPermissionOverride(BaseModel):
+    """Direct user-permission grants for exceptions beyond role membership"""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='permission_overrides')
+    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name='user_overrides')
+    granted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='granted_overrides')
+    reason = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'user_permission_overrides'
+        unique_together = ('user', 'permission')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user} -> {self.permission.code}"
 
 
 class UserRole(BaseModel):
@@ -72,7 +80,8 @@ class UserRole(BaseModel):
         unique_together = ('user', 'role')
     
     def __str__(self):
-        return f"{self.user.get_full_name()} - {self.role.get_name_display()}"
+        # `Role` stores the name in `role.name`; there is no `get_name_display()` helper.
+        return f"{self.user.get_full_name()} - {self.role.name}"
     
     def has_permission(self, permission_code):
         return self.role.has_permission(permission_code)

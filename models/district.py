@@ -3,6 +3,7 @@ from .state import State
 
 class District(models.Model):
     name = models.CharField(max_length=100)
+    lgd_code = models.CharField(max_length=20, unique=True, null=True, blank=True, db_index=True)
     state = models.ForeignKey(
         State,
         on_delete=models.CASCADE,

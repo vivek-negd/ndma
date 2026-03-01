@@ -35,10 +35,11 @@ INSTALLED_APPS = [
     # Third Party
     'rest_framework',
     'rest_framework_simplejwt',
+    'django_filters',
+    'corsheaders',
 
     # Custom Apps
     'models.apps.ModelsConfig',
-    "corsheaders",
 ]
 
 AUTH_USER_MODEL = "models.User"
@@ -82,36 +83,13 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 
 # ==================================================
-# DATABASE CONFIG (MariaDB + ENV BASED)
+# DATABASE CONFIG (SQLite for Development)
 # ==================================================
-
-ENVIRONMENT = os.getenv("ENVIRONMENT")
-
-if ENVIRONMENT == "production":
-    DB_NAME = os.getenv("DB_NAME_PROD")
-    DB_USER = os.getenv("DB_USER_PROD")
-    DB_PASSWORD = os.getenv("DB_PASSWORD_PROD")
-    DB_HOST = os.getenv("DB_HOST_PROD")
-    DB_PORT = os.getenv("DB_PORT_PROD")
-else:
-    DB_NAME = os.getenv("DB_NAME_DEV")
-    DB_USER = os.getenv("DB_USER_DEV")
-    DB_PASSWORD = os.getenv("DB_PASSWORD_DEV")
-    DB_HOST = os.getenv("DB_HOST_DEV")
-    DB_PORT = os.getenv("DB_PORT_DEV")
-
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": DB_NAME,
-        "USER": DB_USER,
-        "PASSWORD": DB_PASSWORD,
-        "HOST": DB_HOST,
-        "PORT": DB_PORT,
-        "OPTIONS": {
-            "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
@@ -146,6 +124,11 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
+    ),
+    "DEFAULT_FILTER_BACKENDS": (
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.SearchFilter",
+        "rest_framework.filters.OrderingFilter",
     ),
 }
 
