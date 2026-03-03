@@ -1,18 +1,17 @@
 from django.db import models
 from .state import State
 from .district import District
+from .organization_type import OrganizationType
 
 
 class Organization(models.Model):
-    ORG_TYPE_CHOICES = [
-        ('NCC', 'National Cadet Corps'),
-        ('NSS', 'National Service Scheme'),
-        ('BSG', 'Bharat Scouts & Guides'),
-        ('NYKS', 'National Youth Korps Society'),
-    ]
     
     name = models.CharField(max_length=100)
-    org_type = models.CharField(max_length=50, choices=ORG_TYPE_CHOICES)
+    org_type = models.ForeignKey(
+        OrganizationType,
+        on_delete=models.PROTECT,
+        related_name='organizations'
+    )
     
     # Geographic scope
     state = models.ForeignKey(State, on_delete=models.PROTECT, related_name='organizations')

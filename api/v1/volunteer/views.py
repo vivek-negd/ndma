@@ -4,13 +4,75 @@ import openpyxl
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
 from django.db import transaction
 from models.organization import Organization
 from .serializers import VolunteerSerializer
 from models.volunteer import Volunteer
+from models.choices import (
+    SalutationChoice,
+    GenderChoice,
+    BloodGroupChoice,
+    MaritalStatusChoice,
+    EducationChoice,
+    SkillChoice,
+    AreaTypeChoice,
+)
 from django.db.models import Count
+
+
+# ============================================================================
+# PUBLIC ENDPOINT - Volunteer Dropdown Choices (NO AUTH REQUIRED)
+# ============================================================================
+
+class VolunteerChoicesAPIView(APIView):
+    """
+    GET /api/v1/volunteer/choices/
+    
+    Returns all dropdown choices for volunteer form fields from database.
+    PUBLIC ENDPOINT - no authentication required.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(
+            {
+                "status_code": 200,
+                "message": "Volunteer dropdown choices retrieved",
+                "choices": {
+                    "salutation": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in SalutationChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                    "gender": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in GenderChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                    "bloodgroup": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in BloodGroupChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                    "maritalstatus": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in MaritalStatusChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                    "education": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in EducationChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                    "skill": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in SkillChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                    "area_type": [
+                        {"id": choice.code, "label": choice.label}
+                        for choice in AreaTypeChoice.objects.filter(is_active=True).order_by('code')
+                    ],
+                }
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 class VolunteerCreateAPIView(APIView):

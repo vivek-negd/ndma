@@ -10,7 +10,7 @@ from api.v1.views.auth_views import LoginView, UserViewSet
 # ============================================================================
 # ORGANIZATION VIEWS
 # ============================================================================
-from api.v1.views.organization_views import OrganizationViewSet
+from api.v1.views.organization_views import OrganizationViewSet, get_organization_types
 
 # ============================================================================
 # RBAC VIEWS
@@ -144,7 +144,11 @@ router.register(
 # URL PATTERNS
 # ============================================================================
 
-urlpatterns = router.urls + [
+urlpatterns = [
+    # PUBLIC ENDPOINTS (no authentication required) - MUST BE BEFORE router.urls
+    # GET /api/v1/organizations/org-types/
+    path('organizations/org-types/', get_organization_types, name='organization-types'),
+] + router.urls + [
     # JWT Token Refresh
     # POST /api/v1/auth/token/refresh/
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
@@ -214,6 +218,12 @@ API_REGISTRY = {
             "description": "List organizations",
             "auth_required": True,
             "roles": ["All authenticated"]
+        },
+        "ORG_TYPES": {
+            "endpoint": "GET /organizations/org-types/",
+            "description": "Get 4 organization types for dropdown (NCC, NSS, BSG, NYKS)",
+            "auth_required": False,
+            "roles": ["All (public, no auth required)"]
         },
         "CREATE": {
             "endpoint": "POST /organizations/",

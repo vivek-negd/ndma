@@ -1,15 +1,52 @@
-from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action
+from rest_framework import viewsets, status, permissions, views
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
 from models.organization import Organization
+from models.organization_type import OrganizationType
 from api.v1.serializers.organization_serializers import (
     OrganizationSerializer, OrganizationListSerializer
 )
 from api.v1.rbac import has_role_access, has_geographical_access
+
+
+# Public API endpoint - Organization Types (no authentication required)
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def get_organization_types(request):
+    """
+    Get all active organization types for dropdown.
+    PUBLIC ENDPOINT - no authentication required.
+    
+    GET /api/v1/organizations/org-types/
+    
+    Response:
+    {
+        "status_code": 200,
+        "message": "Organization types retrieved",
+        "organization_types": [
+            {"id": 1, "code": "NCC", "name": "National Cadet Corps", "description": "..."},
+            {"id": 2, "code": "NSS", "name": "National Service Scheme", "description": "..."},
+            {"id": 3, "code": "BSG", "name": "Bharat Scouts & Guides", "description": "..."},
+            {"id": 4, "code": "NYKS", "name": "National Youth Korps Society", "description": "..."}
+        ]
+    }
+    """
+    org_types = OrganizationType.objects.filter(is_active=True).order_by('code').values(
+        'id', 'code', 'name', 'description'
+    )
+    
+    return Response(
+        {
+            "status_code": 200,
+            "message": "Organization types retrieved",
+            "organization_types": list(org_types)
+        },
+        status=status.HTTP_200_OK
+    )
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -31,6 +68,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'contact_email']
     ordering_fields = ['name', 'org_type', 'created_at']
     ordering = ['org_type', 'name']
+    
+    def get_permissions(self):
+        """Override permissions for specific actions"""
+        if self.action == 'org_types':
+            # org_types endpoint is public - no authentication required
+            return [permissions.AllowAny()]
+        return super().get_permissions()
     
     def get_serializer_class(self):
         """Use simplified serializer for list, full for detail/create"""
@@ -143,16 +187,20 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def by_type(self, request):
         """Get organizations filtered by type (NCC, NSS, BSG, NYKS)"""
-        org_type = request.query_params.get('type')
-        if not org_type:
+        org_type_code = request.query_params.get('type')
+        if not org_type_code:
             return Response(
-                {'error': 'type parameter required (NCC, NSS, BSG, NYKS)'},
+                {'status_code': 400, 'error': 'type parameter required (NCC, NSS, BSG, NYKS)'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        queryset = self.get_queryset().filter(org_type=org_type)
+        queryset = self.get_queryset().filter(org_type__code=org_type_code)
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return Response({
+            'status_code': 200,
+            'message': f'Organizations retrieved for type: {org_type_code}',
+            'data': serializer.data
+        })
     
     @action(detail=False, methods=['get'])
     def stats(self, request):
@@ -166,17 +214,22 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             'by_state': {}
         }
         
-        # Count by org type
-        for org_type, _ in Organization.ORG_TYPE_CHOICES:
-            count = queryset.filter(org_type=org_type).count()
-            stats['by_type'][org_type] = count
+        # Count by org type (from OrganizationType table)
+        from django.db.models import Count
+        org_type_counts = queryset.values('org_type__code', 'org_type__name').annotate(
+            count=Count('id')
+        )
+        for item in org_type_counts:
+            stats['by_type'][item['org_type__code']] = {
+                'name': item['org_type__name'],
+                'count': item['count']
+            }
         
         # Count volunteers
         for org in queryset:
             stats['total_volunteers'] += org.volunteer_count
         
         # Count by state
-        from django.db.models import Count
         by_state = queryset.values('state__name').annotate(
             count=Count('id'),
             volunteers=Count('volunteers')

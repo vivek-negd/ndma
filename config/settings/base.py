@@ -129,6 +129,7 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 
@@ -152,6 +153,33 @@ TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 USE_TZ = True
+
+
+# ==================================================
+# SWAGGER/OPENAPI DOCUMENTATION (drf-spectacular)
+# ==================================================
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "NDMA Volunteer Management API",
+    "DESCRIPTION": "National Disaster Management Authority Volunteer Management System - Complete REST API with RBAC",
+    "VERSION": "1.0.0",
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SCHEMA_PATH_PREFIX": "/api/v1/",
+    "SCHEMA_MOUNT_PATH": "/api/schema/",
+    "CONTACT": {
+        "name": "NDMA API Support",
+        "email": "support@ndma.gov.in",
+    },
+    "LICENSE": {
+        "name": "Government of India License",
+    },
+    "EXTERNAL_DOCS": {
+        "description": "NDMA Official Website",
+        "url": "https://ndma.gov.in",
+    },
+    "PRETTIFY_SCHEMA": True,
+    "SORT_OPERATION_FIELDS": True,
+}
 
 
 # ==================================================
