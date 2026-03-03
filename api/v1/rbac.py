@@ -53,14 +53,14 @@ def has_geographical_access(requesting_user, target_user):
     
     # State admin can access their state
     if requesting_user.user_role == 'SDMA_ADMIN':
-        if requesting_user.state_code and target_user.state_code:
-            return requesting_user.state_code == target_user.state_code
+        if requesting_user.state_id and target_user.state_id:
+            return requesting_user.state_id == target_user.state_id
         return False
     
     # District admin can access their district
     if requesting_user.user_role == 'DDMA_NODAL_OFFICER':
-        if requesting_user.district_code and target_user.district_code:
-            return requesting_user.district_code == target_user.district_code
+        if requesting_user.district_id and target_user.district_id:
+            return requesting_user.district_id == target_user.district_id
         return False
     
     # Organization admin can access their organization only

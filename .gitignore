@@ -38,3 +38,37 @@ STRUCTURE_GUIDE.md
 API_STRUCTURE_CHECKLIST.md
 API_CENTRALIZED_STRUCTURE.md
 USER_PROFILE_GUIDE.md
+
+# ========== DEPRECATED FILES - DO NOT PUSH ==========
+# Old volunteer upload guides (superseded by DEVELOPER_GUIDE.md)
+START_HERE_VOLUNTEER_UPLOAD.md
+IMPLEMENTATION_COMPLETE_VOLUNTEER_UPLOAD.md
+VOLUNTEER_BULK_UPLOAD_GUIDE.md
+VOLUNTEER_UPLOAD_QUICK_REFERENCE.md
+
+# Test files (local development only)
+test_volunteer_upload.py
+
+# Template generation script (not needed in production)
+generate_volunteer_template.py
+
+# Excel template backups/versions
+volunteer_bulk_upload_template_*.xlsx
+
+# Temporary/generated files
+*.tmp
+*.temp
+*.backup
+*.bak
+*.old
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE local configs
+.idea/
+*.swp
+*.swo
+*~

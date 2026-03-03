@@ -33,6 +33,11 @@ from api.v1.views.training_views import TrainingScheduleViewSet
 from api.v1.views.health_views import HealthCheckViewSet, MetricsViewSet
 
 # ============================================================================
+# STATISTICS & GEOGRAPHICAL DATA VIEWS
+# ============================================================================
+from api.v1.views.statistics_views import StateViewSet, DistrictViewSet
+
+# ============================================================================
 # VOLUNTEER VIEWS
 # ============================================================================
 # Volunteer endpoints are handled via routes.py for backward compatibility
@@ -119,6 +124,20 @@ router.register(
     r'metrics',
     MetricsViewSet,
     basename='metrics'
+)
+
+# ────────────────────────────────────────────────────────────────────────
+# STATISTICS & GEOGRAPHICAL DATA ENDPOINTS
+# ────────────────────────────────────────────────────────────────────────
+router.register(
+    r'states',
+    StateViewSet,
+    basename='state'
+)
+router.register(
+    r'districts',
+    DistrictViewSet,
+    basename='district'
 )
 
 # ============================================================================

@@ -6,6 +6,14 @@ from .organization import Organization
 
 class Volunteer(models.Model):
 
+    SALUTATION_CHOICES = [
+        (1, "Mr."),
+        (2, "Mrs."),
+        (3, "Ms."),
+        (4, "Dr."),
+        (5, "Prof."),
+    ]
+
     GENDER_CHOICES = [
         (1, "Male"),
         (2, "Female"),
@@ -21,6 +29,40 @@ class Volunteer(models.Model):
         (6, "O-"),
         (7, "AB+"),
         (8, "AB-"),
+    ]
+
+    MARITALSTATUS_CHOICES = [
+        (1, "Single"),
+        (2, "Married"),
+        (3, "Divorced"),
+        (4, "Widowed"),
+        (5, "Separated"),
+    ]
+
+    EDUCATION_CHOICES = [
+        (1, "Below 10th"),
+        (2, "10th Pass"),
+        (3, "12th Pass"),
+        (4, "Diploma"),
+        (5, "Bachelor"),
+        (6, "Master"),
+        (7, "PhD"),
+        (8, "Other"),
+    ]
+
+    SKILL_CHOICES = [
+        (1, "First Aid"),
+        (2, "Disaster Management"),
+        (3, "Rescue Operations"),
+        (4, "Community Care"),
+        (5, "Training"),
+        (6, "Other"),
+    ]
+
+    AREA_TYPE_CHOICES = [
+        (1, "Urban"),
+        (2, "Rural"),
+        (3, "Semi-Urban"),
     ]
 
     mis_id = models.IntegerField(unique=True)
@@ -58,6 +100,40 @@ class Volunteer(models.Model):
     )
 
     mybharat_id = models.CharField(max_length=50, null=True, blank=True)
+
+    salutation_id = models.IntegerField(
+        choices=SALUTATION_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    maritalstatus_id = models.IntegerField(
+        choices=MARITALSTATUS_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    emergency_contact = models.CharField(max_length=10, null=True, blank=True)
+
+    education_id = models.IntegerField(
+        choices=EDUCATION_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    education_field = models.CharField(max_length=100, null=True, blank=True)
+
+    skill_id = models.IntegerField(
+        choices=SKILL_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    area_type_id = models.IntegerField(
+        choices=AREA_TYPE_CHOICES,
+        null=True,
+        blank=True
+    )
 
     # ✅ Proper Foreign Keys
 

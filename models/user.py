@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.validators import RegexValidator
 from .managers import UserManager
+from .state import State
+from .district import District
 
 # Role choices for User model
 ROLE_CHOICES = (
@@ -46,9 +48,20 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
 
     # Hierarchical Mapping (MANDATORY for RBAC)
-    state_code = models.CharField(max_length=10, null=True, blank=True)
-    district_code = models.CharField(max_length=10, null=True, blank=True)
-    block_code = models.CharField(max_length=10, null=True, blank=True)
+    state_id = models.ForeignKey(
+        State,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users"
+    )
+    district_id = models.ForeignKey(
+        District,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users"
+    )
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

@@ -49,20 +49,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         
         # SDMA_ADMIN: see only their state
         if user.user_role == 'SDMA_ADMIN':
-            if user.state_code:
-                from models.state import State
-                state = State.objects.filter(lgd_code=user.state_code).first()
-                if state:
-                    return queryset.filter(state=state)
+            if user.state_id:
+                return queryset.filter(state_id=user.state_id)
             return queryset.none()
         
         # DDMA_NODAL_OFFICER: see only their district
         if user.user_role == 'DDMA_NODAL_OFFICER':
-            if user.district_code:
-                from models.district import District
-                district = District.objects.filter(lgd_code=user.district_code).first()
-                if district:
-                    return queryset.filter(district=district)
+            if user.district_id:
+                return queryset.filter(district_id=user.district_id)
             return queryset.none()
         
         # YOUTH_ORG_ADMIN: see only their organization
@@ -103,11 +97,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             if not state_id:
                 raise PermissionDenied("Must specify state")
             
-            from models.state import State
-            state = State.objects.filter(id=state_id).first()
-            if not state or state.lgd_code != user.state_code:
+            if int(state_id) != user.state_id:
                 raise PermissionDenied(
-                    f"SDMA_ADMIN can only create organizations in their state"
+                    f"SDMA_ADMIN can only create organizations in their assigned state"
                 )
     
     def create(self, request, *args, **kwargs):
@@ -128,9 +120,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         
         # SDMA_ADMIN can only edit orgs in their state
         if user.user_role == 'SDMA_ADMIN':
-            if instance.state.lgd_code != user.state_code:
+            if instance.state_id != user.state_id:
                 raise PermissionDenied(
-                    "SDMA_ADMIN can only edit organizations in their state"
+                    "SDMA_ADMIN can only edit organizations in their assigned state"
                 )
         
         return super().update(request, *args, **kwargs)

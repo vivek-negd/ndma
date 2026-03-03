@@ -1,5 +1,6 @@
 import csv
 import io
+import openpyxl
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -17,9 +18,9 @@ class VolunteerCreateAPIView(APIView):
 
     ALLOWED_ROLES = [
         "SUPER_ADMIN",
-        "NATIONAL_ADMIN",
-        "STATE_ADMIN",
-        "DISTRICT_ADMIN",
+        "NDMA_ADMIN",
+        "SDMA_ADMIN",
+        "DDMA_NODAL_OFFICER",
         "YOUTH_ORG_ADMIN",
     ]
 
@@ -69,15 +70,16 @@ class VolunteerBulkUploadAPIView(APIView):
 
     ALLOWED_ROLES = [
         "SUPER_ADMIN",
-        "NATIONAL_ADMIN",
-        "STATE_ADMIN",
-        "DISTRICT_ADMIN",
+        "NDMA_ADMIN",
+        "SDMA_ADMIN",
+        "DDMA_NODAL_OFFICER",
         "YOUTH_ORG_ADMIN",
     ]
 
     EXPECTED_COLUMNS = {
         "mis_id",
         "name",
+        "salutation",
         "gender",
         "blood_group",
         "dob",
@@ -85,27 +87,73 @@ class VolunteerBulkUploadAPIView(APIView):
         "mobile",
         "email",
         "mybharat_id",
+        "maritalstatus",
+        "emergency_contact",
+        "education",
+        "education_field",
+        "skill",
         "organization_id",
         "organization_name",
-        "state",
-        "district",
-        "state_lgd_code",
-        "district_lgd_code",
+        "state_name",
+        "district_name",
+        "area_type",
         "postal_code",
         "town",
         "village",
         "full_address",
+        "id_card",
+        "certificate",
+        "photo",
     }
 
     def _parse_csv(self, file_obj):
-        decoded = io.TextIOWrapper(file_obj, encoding='utf-8-sig')
-        reader = csv.DictReader(decoded)
-        rows = []
-        for row in reader:
-            # Normalize keys to snake_case-like fields
-            normalized = {k.strip(): (v.strip() if isinstance(v, str) else v) for k, v in row.items() if k}
-            rows.append(normalized)
-        return rows
+        """Parse CSV file with multiple encoding support"""
+        encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        
+        for encoding in encodings:
+            try:
+                file_obj.seek(0)  # Reset file pointer
+                decoded = io.TextIOWrapper(file_obj, encoding=encoding)
+                reader = csv.DictReader(decoded)
+                rows = []
+                for row in reader:
+                    # Normalize keys to snake_case-like fields
+                    normalized = {k.strip(): (v.strip() if isinstance(v, str) else v) for k, v in row.items() if k}
+                    rows.append(normalized)
+                return rows
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+            except Exception as e:
+                continue
+        
+        # If all encodings fail
+        raise ValueError(f"Unable to parse CSV file. Tried encodings: {', '.join(encodings)}")
+
+    def _parse_excel(self, file_obj):
+        """Parse Excel (.xlsx) file"""
+        try:
+            workbook = openpyxl.load_workbook(file_obj)
+            worksheet = workbook.active
+            
+            # Get headers from first row
+            headers = []
+            for cell in worksheet[1]:
+                if cell.value:
+                    headers.append(str(cell.value).strip())
+            
+            rows = []
+            for row_idx, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), start=2):
+                row_dict = {}
+                for col_idx, header in enumerate(headers):
+                    value = row[col_idx]
+                    if value is not None:
+                        row_dict[header] = str(value).strip() if isinstance(value, str) else value
+                if any(row_dict.values()):  # Only add non-empty rows
+                    rows.append(row_dict)
+            
+            return rows
+        except Exception as e:
+            raise ValueError(f"Unable to parse Excel file: {str(e)}")
 
     def _role_allowed(self, user):
         return getattr(user, "user_role", None) in self.ALLOWED_ROLES
@@ -121,21 +169,43 @@ class VolunteerBulkUploadAPIView(APIView):
         # Optional defaults supplied via form-data fields: state, district, organization_id/name, expected_count
         default_org_id = request.data.get('organization_id')
         default_org_name = request.data.get('organization_name')
-        default_state = request.data.get('state')
-        default_district = request.data.get('district')
-        default_state_lgd_code = request.data.get('state_lgd_code')
-        default_district_lgd_code = request.data.get('district_lgd_code')
+        default_state = request.data.get('state_name')
+        default_district = request.data.get('district_name')
         expected_count = request.data.get('expected_count')
 
-        is_csv = 'file' in request.FILES
-        if is_csv:
-            volunteers_data = self._parse_csv(request.FILES['file'])
+        volunteers_data = None
+        error_msg = None
+
+        # Check for file upload
+        if 'file' in request.FILES:
+            file_obj = request.FILES['file']
+            filename = file_obj.name.lower()
+            
+            try:
+                if filename.endswith('.xlsx') or filename.endswith('.xls'):
+                    # Parse Excel file
+                    volunteers_data = self._parse_excel(file_obj)
+                elif filename.endswith('.csv'):
+                    # Parse CSV file
+                    volunteers_data = self._parse_csv(file_obj)
+                else:
+                    error_msg = "Unsupported file format. Use .xlsx, .xls, or .csv"
+            except Exception as e:
+                error_msg = f"Error parsing file: {str(e)}"
         else:
+            # Try to parse as JSON array from request.data
             volunteers_data = request.data
+
+        # Return error if file parsing failed
+        if error_msg:
+            return Response(
+                {"error": error_msg},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         if not isinstance(volunteers_data, list):
             return Response(
-                {"error": "Expected list of volunteers or CSV file"},
+                {"error": "Expected list of volunteers or CSV/Excel file"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -149,22 +219,10 @@ class VolunteerBulkUploadAPIView(APIView):
                 row['organization_id'] = default_org_id
             if default_org_name and 'organization_name' not in row:
                 row['organization_name'] = default_org_name
-
-            # Prefer name-based inputs to avoid PK type errors
-            if default_state_lgd_code and 'state_lgd_code' not in row:
-                row['state_lgd_code'] = default_state_lgd_code
-            if default_state and 'state' not in row and 'state_name' not in row:
+            if default_state and 'state_name' not in row:
                 row['state_name'] = default_state
-            if 'state' in row and isinstance(row['state'], str) and 'state_name' not in row:
-                row['state_name'] = row.pop('state')
-
-            if default_district_lgd_code and 'district_lgd_code' not in row:
-                row['district_lgd_code'] = default_district_lgd_code
-            if default_district and 'district' not in row and 'district_name' not in row:
+            if default_district and 'district_name' not in row:
                 row['district_name'] = default_district
-            if 'district' in row and isinstance(row['district'], str) and 'district_name' not in row:
-                row['district_name'] = row.pop('district')
-
             return row
 
         volunteers_data = [apply_defaults(dict(v)) for v in volunteers_data]
@@ -230,27 +288,24 @@ class OrganizationCoverageAPIView(APIView):
             total_volunteers = qs.count()
 
             # aggregate by state and district
-            state_agg = qs.values('state__id', 'state__name', 'state__lgd_code').annotate(state_count=Count('id'))
+            state_agg = qs.values('state__id', 'state__name').annotate(state_count=Count('id'))
             states = []
             for s in state_agg:
                 state_id = s['state__id']
                 state_name = s.get('state__name')
-                state_lgd = s.get('state__lgd_code')
 
-                districts_qs = qs.filter(state_id=state_id).values('district__id', 'district__name', 'district__lgd_code').annotate(district_count=Count('id'))
+                districts_qs = qs.filter(state_id=state_id).values('district__id', 'district__name').annotate(district_count=Count('id'))
                 districts = []
                 for d in districts_qs:
                     districts.append({
                         'district_id': d.get('district__id'),
                         'district_name': d.get('district__name'),
-                        'district_lgd_code': d.get('district__lgd_code'),
                         'volunteer_count': d.get('district_count')
                     })
 
                 states.append({
                     'state_id': state_id,
                     'state_name': state_name,
-                    'state_lgd_code': state_lgd,
                     'volunteer_count': s.get('state_count'),
                     'districts': districts
                 })
