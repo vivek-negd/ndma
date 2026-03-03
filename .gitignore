@@ -24,12 +24,10 @@ staticfiles/
 .DS_Store
 Thumbs.db
 
-# Local Documentation (Not for GitHub)
-docs/API_COMPLETE_GUIDE.md
-docs/API_ENDPOINTS_COMPLETE.md
-docs/ALL_ENDPOINTS.md
+# Documentation (Local Only - DO NOT PUSH)
+docs/
 
-# Structural & Reference Documentation (Local Only)
+# Temporary & Deprecated Files
 CODEBASE_STRUCTURE.md
 MODULE_DEPENDENCIES.md
 FILE_ORGANIZATION.md
@@ -38,21 +36,12 @@ STRUCTURE_GUIDE.md
 API_STRUCTURE_CHECKLIST.md
 API_CENTRALIZED_STRUCTURE.md
 USER_PROFILE_GUIDE.md
-
-# ========== DEPRECATED FILES - DO NOT PUSH ==========
-# Old volunteer upload guides (superseded by DEVELOPER_GUIDE.md)
 START_HERE_VOLUNTEER_UPLOAD.md
 IMPLEMENTATION_COMPLETE_VOLUNTEER_UPLOAD.md
 VOLUNTEER_BULK_UPLOAD_GUIDE.md
 VOLUNTEER_UPLOAD_QUICK_REFERENCE.md
-
-# Test files (local development only)
 test_volunteer_upload.py
-
-# Template generation script (not needed in production)
 generate_volunteer_template.py
-
-# Excel template backups/versions
 volunteer_bulk_upload_template_*.xlsx
 
 # Temporary/generated files
