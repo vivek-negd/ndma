@@ -1,31 +1,4 @@
-# NDMA API - National Disaster Management Authority
-**REST API for Disaster Management, Training & Volunteer Coordination**
-
-**Version**: 1.0.0 (Fresh Setup - March 2026)  
-**Status**: ✅ Production Ready  
-**Database**: MariaDB (ndma_dev_db)  
-**Python**: 3.11+ | Django: 5.0.3 | DRF: 3.15.1
-
----
-
-## 📋 Quick Start
-
-### Prerequisites
-- Python 3.11+
-- MariaDB 10.5+
-- Git
-
-### Installation
-```bash
-# Clone repo
-git clone <repo-url>
-cd ndma_api
-
-# Create virtual environment
-python -m venv ndma-venv
-source ndma-venv/Scripts/activate  # Windows
-# or: source ndma-venv/bin/activate  # Linux/Mac
-
+ 
 # Install dependencies
 pip install -r requirements.txt
 
@@ -122,17 +95,7 @@ python manage.py runserver 8000
 - **user_roles** - User role assignments
 - **user_permission_overrides** - User-specific permission overrides
 - **role_permission_audits** - Audit trail of RBAC changes
-
-### Django Built-in Tables
-- **auth_user, auth_group, auth_permission** - Django auth
-- **django_migrations** - Migration history (19 applied)
-- **django_content_type, django_admin_log, django_session** - DRF/Admin
-
----
-
-## 🔌 API Endpoints
-
-### Health & Monitoring
+ 
 ```
 GET  /api/v1/health/alive/          # Simple health check
 GET  /api/v1/health/status/         # Detailed status
@@ -148,32 +111,7 @@ GET  /api/v1/auth/profile/          # Get current user profile
 POST /api/v1/auth/change_password/  # Change own password
 POST /api/v1/auth/token/refresh/    # Refresh JWT token
 ```
-
-### RBAC Management
-```
-GET    /api/v1/rbac/permissions/                      # List all permissions
-GET    /api/v1/rbac/permissions/<id>/                 # Permission detail
-GET    /api/v1/rbac/roles/                            # List all roles
-POST   /api/v1/rbac/roles/                            # Create role (SUPER_ADMIN)
-PUT/PATCH /api/v1/rbac/roles/<id>/                    # Update role
-DELETE /api/v1/rbac/roles/<id>/                       # Delete role
-POST   /api/v1/rbac/roles/<id>/assign_permission/     # Add permission to role
-POST   /api/v1/rbac/roles/<id>/revoke_permission/     # Remove permission from role
-GET    /api/v1/rbac/user-roles/                       # List user role mappings
-POST   /api/v1/rbac/user-roles/                       # Assign role to user
-PUT/PATCH /api/v1/rbac/user-roles/<id>/               # Update user role
-POST   /api/v1/rbac/user-roles/<id>/activate/         # Activate mapping
-POST   /api/v1/rbac/user-roles/<id>/deactivate/       # Deactivate mapping
-GET    /api/v1/rbac/audit/                            # Audit log
-```
-
-### User Management
-```
-GET  /api/v1/users/                 # List users (filtered by role)
-GET  /api/v1/users/<id>/            # User detail
-PUT  /api/v1/users/<id>/            # Update user profile
-```
-
+ 
 ### Master Data
 ```
 GET  /api/v1/states/                # List states
@@ -387,53 +325,4 @@ ndma_api/
 
 ---
 
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Issue**: `No such table: models_user`
-- **Solution**: Run `python manage.py migrate`
-
-**Issue**: `ModuleNotFoundError: No module named 'xyz'`
-- **Solution**: Run `pip install -r requirements.txt`
-
-**Issue**: `Connection refused` (MariaDB)
-- **Solution**: Verify MariaDB is running and credentials in .env are correct
-
-**Issue**: `CORS error` in frontend
-- **Solution**: Update `CORS_ALLOWED_ORIGINS` in settings
-
-**Issue**: `Invalid token` or `TokenError`
-- **Solution**: Token may be expired, refresh using `/api/v1/auth/token/refresh/`
-
----
-
-## 📞 Support & Documentation
-
-- **API Reference**: See endpoint examples above
-- **RBAC Guide**: [RBAC Design Document](./docs/RBAC_DESIGN.md)
-- **Database Schema**: [Schema Details](./docs/DATABASE_SCHEMA.md)
-- **Troubleshooting**: [FAQ & Issues](./docs/TROUBLESHOOTING.md)
-- **Contributing**: [Contribution Guidelines](./CONTRIBUTING.md)
-
----
-
-## 📄 License
-
-Government of India - NDMA  
-All rights reserved
-
----
-
-## ✅ Setup Verification Checklist
-
-- ✅ Database: MariaDB ndma_dev_db (23 tables created)
-- ✅ Schema: All migrations applied (19 migrations)
-- ✅ RBAC: 9 roles + 50+ permissions seeded
-- ✅ Superuser: Created (admin@ndma.gov.in / Admin@2025)
-- ✅ Dependencies: All installed from requirements.txt
-- ✅ Health Endpoints: Ready for monitoring
-- ✅ System Check: No issues found ✓
-
-**Last Updated**: March 2, 2026  
-**Status**: 🟢 Production Ready
+ 
