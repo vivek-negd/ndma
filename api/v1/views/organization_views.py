@@ -11,6 +11,7 @@ from api.v1.serializers.organization_serializers import (
     OrganizationSerializer, OrganizationListSerializer
 )
 from api.v1.rbac import has_role_access, has_geographical_access
+from core.constants import UserRoles, ErrorMessages
 
 
 # Public API endpoint - Organization Types (no authentication required)
@@ -88,23 +89,23 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         queryset = Organization.objects.all()
         
         # SUPER_ADMIN, NDMA_ADMIN, TECHNICAL_ADMIN: see all
-        if user.user_role in ['SUPER_ADMIN', 'NDMA_ADMIN', 'TECHNICAL_ADMIN']:
+        if user.user_role in UserRoles.ADMIN_ROLES:
             return queryset
         
         # SDMA_ADMIN: see only their state
-        if user.user_role == 'SDMA_ADMIN':
+        if user.user_role == UserRoles.SDMA_ADMIN:
             if user.state_id:
                 return queryset.filter(state_id=user.state_id)
             return queryset.none()
         
         # DDMA_NODAL_OFFICER: see only their district
-        if user.user_role == 'DDMA_NODAL_OFFICER':
+        if user.user_role == UserRoles.DDMA_NODAL_OFFICER:
             if user.district_id:
                 return queryset.filter(district_id=user.district_id)
             return queryset.none()
         
         # YOUTH_ORG_ADMIN: see only their organization
-        if user.user_role == 'YOUTH_ORG_ADMIN':
+        if user.user_role == UserRoles.YOUTH_ORG_ADMIN:
             from models.role import UserRole
             user_role = UserRole.objects.filter(user=user).first()
             if user_role and user_role.organization:
@@ -112,7 +113,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             return queryset.none()
         
         # VOLUNTEER: see their organization only
-        if user.user_role == 'VOLUNTEER':
+        if user.user_role == UserRoles.VOLUNTEER:
             # Get volunteer's organization
             from models.volunteer import Volunteer
             volunteer = Volunteer.objects.filter(
@@ -129,22 +130,23 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         """Check if user can create organization"""
         user = request.user
         
-        allowed_roles = ['SUPER_ADMIN', 'NDMA_ADMIN', 'TECHNICAL_ADMIN', 'SDMA_ADMIN']
+        allowed_roles = [
+            UserRoles.SUPER_ADMIN,
+            UserRoles.NDMA_ADMIN,
+            UserRoles.TECHNICAL_ADMIN,
+            UserRoles.SDMA_ADMIN
+        ]
         if user.user_role not in allowed_roles:
-            raise PermissionDenied(
-                f"Users with role {user.user_role} cannot create organizations"
-            )
+            raise PermissionDenied(ErrorMessages.INSUFFICIENT_ROLE_CREATE_ORG)
         
         # SDMA_ADMIN can only create in their state
-        if user.user_role == 'SDMA_ADMIN':
+        if user.user_role == UserRoles.SDMA_ADMIN:
             state_id = request.data.get('state')
             if not state_id:
-                raise PermissionDenied("Must specify state")
+                raise PermissionDenied(ErrorMessages.STATE_REQUIRED)
             
             if int(state_id) != user.state_id:
-                raise PermissionDenied(
-                    f"SDMA_ADMIN can only create organizations in their assigned state"
-                )
+                raise PermissionDenied(ErrorMessages.STATE_MISMATCH)
     
     def create(self, request, *args, **kwargs):
         """Create new organization"""
@@ -156,18 +158,19 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = request.user
         instance = self.get_object()
         
-        allowed_roles = ['SUPER_ADMIN', 'NDMA_ADMIN', 'TECHNICAL_ADMIN', 'SDMA_ADMIN']
+        allowed_roles = [
+            UserRoles.SUPER_ADMIN,
+            UserRoles.NDMA_ADMIN,
+            UserRoles.TECHNICAL_ADMIN,
+            UserRoles.SDMA_ADMIN
+        ]
         if user.user_role not in allowed_roles:
-            raise PermissionDenied(
-                f"Users with role {user.user_role} cannot edit organizations"
-            )
+            raise PermissionDenied(ErrorMessages.INSUFFICIENT_ROLE)
         
         # SDMA_ADMIN can only edit orgs in their state
-        if user.user_role == 'SDMA_ADMIN':
+        if user.user_role == UserRoles.SDMA_ADMIN:
             if instance.state_id != user.state_id:
-                raise PermissionDenied(
-                    "SDMA_ADMIN can only edit organizations in their assigned state"
-                )
+                raise PermissionDenied(ErrorMessages.STATE_MISMATCH)
         
         return super().update(request, *args, **kwargs)
     
@@ -176,11 +179,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = request.user
         instance = self.get_object()
         
-        allowed_roles = ['SUPER_ADMIN', 'NDMA_ADMIN', 'TECHNICAL_ADMIN']
+        allowed_roles = [UserRoles.SUPER_ADMIN, UserRoles.NDMA_ADMIN, UserRoles.TECHNICAL_ADMIN]
         if user.user_role not in allowed_roles:
-            raise PermissionDenied(
-                f"Users with role {user.user_role} cannot delete organizations"
-            )
+            raise PermissionDenied(ErrorMessages.INSUFFICIENT_ROLE)
         
         return super().destroy(request, *args, **kwargs)
     

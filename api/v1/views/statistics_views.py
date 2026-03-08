@@ -15,6 +15,7 @@ from api.v1.serializers.statistics_serializers import (
     StateSerializer,
     StateDetailSerializer,
     DistrictSerializer,
+    DistrictDetailSerializer,
     VolunteerStatisticsSerializer
 )
 from services.volunteer_count_service import VolunteerCountService
@@ -128,8 +129,9 @@ class DistrictViewSet(viewsets.ReadOnlyModelViewSet):
     
     Endpoints:
     - GET /api/v1/districts/ - List all districts with volunteer counts
+    - GET /api/v1/districts/{state_id}/ - Get all districts for a specific state
     - GET /api/v1/districts/{id}/ - Get district details
-    - GET /api/v1/districts/by_state/{state_id}/ - Get districts by state
+    - GET /api/v1/districts/by_state/{state_id}/ - Get districts by state (alternative)
     """
     queryset = District.objects.select_related('state').all()
     serializer_class = DistrictSerializer
@@ -165,6 +167,61 @@ class DistrictViewSet(viewsets.ReadOnlyModelViewSet):
         except State.DoesNotExist:
             return Response(
                 {'status': 'error', 'message': 'State not found', 'code': 'STATE_NOT_FOUND'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['get'])
+    def state(self, request, pk=None):
+        """
+        Get state information and all its districts when querying by district ID.
+        
+        Example: GET /api/v1/districts/42/state/
+        
+        Returns:
+        ```json
+        {
+            "status": "success",
+            "data": {
+                "district": {...},
+                "state": {
+                    "id": 1,
+                    "name": "Andhra Pradesh",
+                    "volunteer_count": 1234,
+                    "districts": [...],
+                    "total_districts": 12
+                }
+            },
+            "message": "State with all districts retrieved successfully"
+        }
+        ```
+        """
+        try:
+            district = self.get_object()
+            state = district.state
+            
+            # Get all districts for this state
+            all_districts = state.districts.all()
+            
+            return Response(
+                {
+                    'status': 'success',
+                    'data': {
+                        'district': DistrictSerializer(district).data,
+                        'state': {
+                            'id': state.id,
+                            'name': state.name,
+                            'lgd_code': state.lgd_code,
+                            'volunteer_count': state.volunteer_count,
+                            'total_districts': all_districts.count(),
+                            'districts': DistrictSerializer(all_districts, many=True).data
+                        }
+                    },
+                    'message': f"State {state.name} with all {all_districts.count()} districts retrieved successfully"
+                }
+            )
+        except District.DoesNotExist:
+            return Response(
+                {'status': 'error', 'message': 'District not found', 'code': 'DISTRICT_NOT_FOUND'},
                 status=status.HTTP_404_NOT_FOUND
             )
     

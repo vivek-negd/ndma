@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from models.training import TrainingSchedule, TrainingSession
+from models.training_media import TrainingSessionMedia
 
 
 class TrainingSessionSerializer(serializers.ModelSerializer):
@@ -10,14 +11,28 @@ class TrainingSessionSerializer(serializers.ModelSerializer):
 
 class TrainingScheduleSerializer(serializers.ModelSerializer):
     sessions = TrainingSessionSerializer(many=True, required=False)
+    state_name = serializers.SerializerMethodField()
+    district_name = serializers.SerializerMethodField()
 
     class Meta:
         model = TrainingSchedule
         fields = [
-            'id', 'state', 'district', 'organization', 'organization_name', 'organization_type',
+            'id', 'state', 'state_name', 'district', 'district_name', 'organization', 'organization_name', 'organization_type',
             'number_of_volunteers', 'batch_no', 'institute_details', 'trainers_details',
             'start_date', 'end_date', 'status', 'upload_option', 'sessions'
         ]
+    
+    def get_state_name(self, obj):
+        """Get state name from related State object"""
+        if obj.state:
+            return obj.state.name
+        return None
+    
+    def get_district_name(self, obj):
+        """Get district name from related District object"""
+        if obj.district:
+            return obj.district.name
+        return None
 
     def get_fields(self):
         fields = super().get_fields()
@@ -60,3 +75,31 @@ class TrainingScheduleSerializer(serializers.ModelSerializer):
                 TrainingSession.objects.create(schedule=instance, **s)
 
         return instance
+
+class TrainingSessionMediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TrainingSessionMedia
+        fields = ['id', 'session', 'image', 'file_size', 'file_name', 'uploaded_by', 'uploaded_at']
+        read_only_fields = ['id', 'file_size', 'file_name', 'uploaded_at']
+
+    def validate_image(self, value):
+        """
+        Validate image file:
+        - Max size: 3 MB (3145728 bytes)
+        - Format: JPG, JPEG, PNG
+        """
+        max_size = 3145728  # 3 MB in bytes
+
+        if value.size > max_size:
+            size_mb = value.size / 1048576
+            raise serializers.ValidationError(
+                f'Image size must be max 3 MB. Your file: {size_mb:.2f} MB'
+            )
+
+        # Check format
+        if not value.name.lower().endswith(('.jpg', '.jpeg', '.png')):
+            raise serializers.ValidationError(
+                'Only JPG, JPEG, and PNG formats are allowed'
+            )
+
+        return value

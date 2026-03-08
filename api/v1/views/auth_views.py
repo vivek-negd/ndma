@@ -15,6 +15,7 @@ from api.v1.serializers.auth_serializers import (
     UserLoginSerializer,
     UserSerializer,
 )
+from core.constants import UserRoles, ErrorMessages
 from models.state import State
 from models.district import District
 
@@ -52,11 +53,11 @@ class LoginView(viewsets.ViewSet):
     @action(detail=False, methods=["post"], permission_classes=[IsAuthenticated])
     def create_user(self, request):
         user_role = getattr(request.user, "user_role", None)
-        if user_role not in ["SUPER_ADMIN", "NDMA_ADMIN", "TECHNICAL_ADMIN"]:
+        if user_role not in UserRoles.ADMIN_ROLES:
             return Response(
                 {
                     "status_code": 403,
-                    "error": "Only SUPER_ADMIN/NDMA_ADMIN/TECHNICAL_ADMIN can create users"
+                    "error": ErrorMessages.INSUFFICIENT_ROLE_CREATE_USER
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
@@ -121,11 +122,11 @@ class LoginView(viewsets.ViewSet):
         }
         """
         user_role = getattr(request.user, "user_role", None)
-        if user_role not in ["SUPER_ADMIN", "NDMA_ADMIN", "TECHNICAL_ADMIN"]:
+        if user_role not in UserRoles.ADMIN_ROLES:
             return Response(
                 {
                     "status_code": 403,
-                    "error": "Only SUPER_ADMIN/NDMA_ADMIN/TECHNICAL_ADMIN can create users"
+                    "error": ErrorMessages.INSUFFICIENT_ROLE_CREATE_USER
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
@@ -142,8 +143,7 @@ class LoginView(viewsets.ViewSet):
             )
 
         # Validate privilege value
-        from models.user import ROLE_CHOICES
-        valid_roles = [choice[0] for choice in ROLE_CHOICES]
+        valid_roles = UserRoles.ALL_ROLES
         if privilege not in valid_roles:
             return Response(
                 {
@@ -286,15 +286,15 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = User.objects.all()
         
         # SUPER_ADMIN, NDMA_ADMIN, TECHNICAL_ADMIN: see all users
-        if user.user_role in ['SUPER_ADMIN', 'NDMA_ADMIN', 'TECHNICAL_ADMIN']:
+        if user.user_role in UserRoles.ADMIN_ROLES:
             return queryset
         
         # SDMA_ADMIN: see users in their state only
-        if user.user_role == 'SDMA_ADMIN' and user.state_id:
+        if user.user_role == UserRoles.SDMA_ADMIN and user.state_id:
             return queryset.filter(state_id=user.state_id)
         
         # DDMA_NODAL_OFFICER: see users in their district only
-        if user.user_role == 'DDMA_NODAL_OFFICER' and user.district_id:
+        if user.user_role == UserRoles.DDMA_NODAL_OFFICER and user.district_id:
             return queryset.filter(district_id=user.district_id)
         
         # All others: see only themselves

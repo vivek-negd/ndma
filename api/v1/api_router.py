@@ -1,15 +1,14 @@
-from rest_framework.routers import DefaultRouter
-from django.urls import path
+﻿from rest_framework.routers import DefaultRouter
+from django.urls import path, re_path
 from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
 
-# ============================================================================
-# AUTHENTICATION VIEWS
-# ============================================================================
+ 
 from api.v1.views.auth_views import LoginView, UserViewSet
-
-# ============================================================================
-# ORGANIZATION VIEWS
-# ============================================================================
+ 
 from api.v1.views.organization_views import OrganizationViewSet, get_organization_types
 
 # ============================================================================
@@ -26,6 +25,7 @@ from api.v1.views.rbac_views import (
 # TRAINING VIEWS
 # ============================================================================
 from api.v1.views.training_views import TrainingScheduleViewSet
+from api.v1.views.training_media_views import TrainingSessionMediaViewSet
 
 # ============================================================================
 # HEALTH CHECK & MONITORING VIEWS
@@ -36,6 +36,13 @@ from api.v1.views.health_views import HealthCheckViewSet, MetricsViewSet
 # STATISTICS & GEOGRAPHICAL DATA VIEWS
 # ============================================================================
 from api.v1.views.statistics_views import StateViewSet, DistrictViewSet
+
+# ============================================================================
+# MODELS
+# ============================================================================
+from models.district import District
+from models.state import State
+from api.v1.serializers.statistics_serializers import DistrictSerializer, StateSerializer
 
 # ============================================================================
 # VOLUNTEER VIEWS
@@ -50,9 +57,9 @@ from api.v1.views.statistics_views import StateViewSet, DistrictViewSet
 
 router = DefaultRouter()
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # AUTH ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.register(
     r'auth',
     LoginView,
@@ -64,18 +71,18 @@ router.register(
     basename='user'
 )
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # ORGANIZATION ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.register(
     r'organizations',
     OrganizationViewSet,
     basename='organization'
 )
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # RBAC ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.register(
     r'rbac/permissions',
     PermissionViewSet,
@@ -97,24 +104,29 @@ router.register(
     basename='role-permission-audit'
 )
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # TRAINING ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.register(
     r'training-schedules',
     TrainingScheduleViewSet,
     basename='training-schedule'
 )
+router.register(
+    r'training-session-media',
+    TrainingSessionMediaViewSet,
+    basename='training-session-media'
+)
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # VOLUNTEER ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Note: Volunteer endpoints are handled via separate routes.py
 # Include in main urls.py: path('volunteer/', include(volunteer_routes))
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # HEALTH CHECK & MONITORING ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.register(
     r'health',
     HealthCheckViewSet,
@@ -126,9 +138,9 @@ router.register(
     basename='metrics'
 )
 
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # STATISTICS & GEOGRAPHICAL DATA ENDPOINTS
-# ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.register(
     r'states',
     StateViewSet,
@@ -144,10 +156,45 @@ router.register(
 # URL PATTERNS
 # ============================================================================
 
+# Custom endpoint for getting districts by state_id
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_districts_by_state_id(request, state_id):
+    """
+    Get all districts for a specific state by state ID.
+    
+    Endpoint: GET /api/v1/districts/{state_id}/
+    
+    Returns: List of all districts for the state with volunteer counts
+    """
+    try:
+        state = State.objects.get(id=state_id)
+        districts = District.objects.filter(state=state).order_by('name')
+        serializer = DistrictSerializer(districts, many=True)
+        return Response(
+            {
+                'status': 'success',
+                'data': {
+                    'state': StateSerializer(state).data,
+                    'districts': serializer.data,
+                    'total_districts': len(serializer.data)
+                },
+                'message': f"Districts for {state.name} retrieved successfully"
+            }
+        )
+    except State.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'State not found', 'code': 'STATE_NOT_FOUND'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
 urlpatterns = [
     # PUBLIC ENDPOINTS (no authentication required) - MUST BE BEFORE router.urls
     # GET /api/v1/organizations/org-types/
     path('organizations/org-types/', get_organization_types, name='organization-types'),
+    # CUSTOM DISTRICTS BY STATE ENDPOINT - MUST BE BEFORE router.urls
+    # GET /api/v1/districts/{state_id}/
+    re_path(r'^districts/(?P<state_id>[0-9]+)/$', get_districts_by_state_id, name='districts-by-state-id'),
 ] + router.urls + [
     # JWT Token Refresh
     # POST /api/v1/auth/token/refresh/
@@ -435,3 +482,4 @@ API_REGISTRY = {
         },
     },
 }
+

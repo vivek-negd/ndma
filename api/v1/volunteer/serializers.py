@@ -148,6 +148,12 @@ class VolunteerSerializer(serializers.ModelSerializer):
         return AREA_TYPE_MAP.get(key)
 
     def validate(self, attrs):
+        # Strip whitespace from all string fields (fixes Excel import issues)
+        string_fields = ['aadhar', 'mobile', 'email', 'name', 'mybharat_id', 'emergency_contact']
+        for field in string_fields:
+            if field in attrs and isinstance(attrs[field], str):
+                attrs[field] = attrs[field].strip()
+        
         org_name = attrs.pop('organization_name', None)
         gender_label = attrs.pop('gender', None)
         blood_group_label = attrs.pop('blood_group', None)
@@ -215,11 +221,8 @@ class VolunteerSerializer(serializers.ModelSerializer):
             attrs['area_type_id'] = coerced_area
 
         mis = attrs.get('mis_id')
-        if mis is not None and not isinstance(mis, int):
-            try:
-                attrs['mis_id'] = int(mis)
-            except (TypeError, ValueError):
-                raise serializers.ValidationError({'mis_id': 'mis_id must be an integer'})
+        if mis is not None:
+            attrs['mis_id'] = str(mis).strip()
 
         state_value = attrs.get('state')
         if isinstance(state_value, str):

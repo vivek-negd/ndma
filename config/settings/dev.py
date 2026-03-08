@@ -16,6 +16,20 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 
+# Allow ngrok and custom headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'ngrok-skip-browser-warning',  # Allow ngrok tunnel header
+]
+
 
 # ==========================
 # DATABASE - DEVELOPMENT (override to MariaDB if env vars provided)

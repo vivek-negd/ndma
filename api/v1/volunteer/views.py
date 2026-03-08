@@ -1,5 +1,3 @@
-import csv
-import io
 import openpyxl
 
 from rest_framework.views import APIView
@@ -168,28 +166,7 @@ class VolunteerBulkUploadAPIView(APIView):
         "photo",
     }
 
-    def _parse_csv(self, file_obj):
-        """Parse CSV file with multiple encoding support"""
-        encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-        
-        for encoding in encodings:
-            try:
-                file_obj.seek(0)  # Reset file pointer
-                decoded = io.TextIOWrapper(file_obj, encoding=encoding)
-                reader = csv.DictReader(decoded)
-                rows = []
-                for row in reader:
-                    # Normalize keys to snake_case-like fields
-                    normalized = {k.strip(): (v.strip() if isinstance(v, str) else v) for k, v in row.items() if k}
-                    rows.append(normalized)
-                return rows
-            except (UnicodeDecodeError, UnicodeError):
-                continue
-            except Exception as e:
-                continue
-        
-        # If all encodings fail
-        raise ValueError(f"Unable to parse CSV file. Tried encodings: {', '.join(encodings)}")
+
 
     def _parse_excel(self, file_obj):
         """Parse Excel (.xlsx) file"""
@@ -238,36 +215,34 @@ class VolunteerBulkUploadAPIView(APIView):
         volunteers_data = None
         error_msg = None
 
-        # Check for file upload
+        # Check for file upload (EXCEL ONLY)
         if 'file' in request.FILES:
             file_obj = request.FILES['file']
             filename = file_obj.name.lower()
             
+            # Only accept Excel files
+            if not (filename.endswith('.xlsx') or filename.endswith('.xls')):
+                return Response(
+                    {"error": "Only Excel files (.xlsx, .xls) are supported. Please upload an Excel file."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             try:
-                if filename.endswith('.xlsx') or filename.endswith('.xls'):
-                    # Parse Excel file
-                    volunteers_data = self._parse_excel(file_obj)
-                elif filename.endswith('.csv'):
-                    # Parse CSV file
-                    volunteers_data = self._parse_csv(file_obj)
-                else:
-                    error_msg = "Unsupported file format. Use .xlsx, .xls, or .csv"
+                volunteers_data = self._parse_excel(file_obj)
             except Exception as e:
-                error_msg = f"Error parsing file: {str(e)}"
+                return Response(
+                    {"error": f"Error parsing Excel file: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         else:
-            # Try to parse as JSON array from request.data
-            volunteers_data = request.data
-
-        # Return error if file parsing failed
-        if error_msg:
             return Response(
-                {"error": error_msg},
+                {"error": "File upload is required. Please provide an Excel file (.xlsx or .xls)"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if not isinstance(volunteers_data, list):
             return Response(
-                {"error": "Expected list of volunteers or CSV/Excel file"},
+                {"error": "Expected valid Excel file with volunteer data"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -314,13 +289,21 @@ class VolunteerBulkUploadAPIView(APIView):
             except (TypeError, ValueError):
                 warnings.append({"expected_count": expected_count, "message": "expected_count must be integer"})
 
+        # Determine response status code
+        if len(errors) > 0:
+            # Partial success/failure
+            response_status = status.HTTP_207_MULTI_STATUS if len(created_records) > 0 else status.HTTP_400_BAD_REQUEST
+        else:
+            # All successful
+            response_status = status.HTTP_201_CREATED
+
         return Response({
             "created_count": len(created_records),
             "created_mis_ids": created_records,
             "error_count": len(errors),
             "errors": errors,
             "warnings": warnings
-        }, status=status.HTTP_201_CREATED)
+        }, status=response_status)
 
 
 class OrganizationCoverageAPIView(APIView):

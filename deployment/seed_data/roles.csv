@@ -1,0 +1,9 @@
+role_name,description
+SUPER_ADMIN,Full system access - National level superuser
+NDMA_ADMIN,NDMA national administration
+SDMA_ADMIN,State Disaster Management Authority admin
+DDMA_NODAL_OFFICER,District Disaster Management Authority officer
+YOUTH_ORG_ADMIN,Youth organization administrator
+STATE_ADMIN,State level administrator
+DISTRICT_ADMIN,District level administrator
+VOLUNTEER,Basic volunteer user
