@@ -77,10 +77,13 @@ class TrainingScheduleSerializer(serializers.ModelSerializer):
         return instance
 
 class TrainingSessionMediaSerializer(serializers.ModelSerializer):
+    session_day = serializers.CharField(source='session.day_label', read_only=True)
+    batch_no = serializers.CharField(source='session.schedule.batch_no', read_only=True)
+    
     class Meta:
         model = TrainingSessionMedia
-        fields = ['id', 'session', 'image', 'file_size', 'file_name', 'uploaded_by', 'uploaded_at']
-        read_only_fields = ['id', 'file_size', 'file_name', 'uploaded_at']
+        fields = ['id', 'session', 'session_day', 'batch_no', 'image', 'file_size', 'file_name', 'uploaded_by', 'uploaded_at']
+        read_only_fields = ['id', 'file_size', 'file_name', 'uploaded_at', 'session_day', 'batch_no']
 
     def validate_image(self, value):
         """

@@ -28,7 +28,7 @@ class TrainingSchedule(models.Model):
     organization_type = models.CharField(max_length=30, choices=ORGANIZATION_TYPES, default="OTHER")
 
     number_of_volunteers = models.PositiveIntegerField(default=0)
-    batch_no = models.CharField(max_length=50, null=True, blank=True)
+    batch_no = models.CharField(max_length=50, unique=True, db_index=True, help_text="Batch identifier (e.g., FEB2026-MH-MUM-001)")
     institute_details = models.TextField(null=True, blank=True)
     trainers_details = models.TextField(null=True, blank=True)
 
@@ -45,6 +45,12 @@ class TrainingSchedule(models.Model):
 
     class Meta:
         db_table = "models_training_schedule"
+        indexes = [
+            models.Index(fields=['batch_no']),
+            models.Index(fields=['state', 'district']),
+            models.Index(fields=['created_at']),
+        ]
+        unique_together = [['batch_no']]
 
     def __str__(self):
         return f"TrainingSchedule {self.id} - {self.organization_name or (self.organization.name if self.organization else 'N/A')}"

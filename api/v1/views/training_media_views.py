@@ -197,6 +197,8 @@ class TrainingSessionMediaViewSet(viewsets.ModelViewSet):
             'message': f'{len(uploads)} image(s) uploaded successfully',
             'uploaded': uploads,
             'session_id': session_id,
+            'day': session.day_label,
+            'batch_no': session.schedule.batch_no,
             'total_media_in_session': existing_count + len(uploads)
         }
 

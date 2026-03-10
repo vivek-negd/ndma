@@ -107,19 +107,33 @@ class LoginView(viewsets.ViewSet):
         """
         Create user with privilege (role) in ONE API call - INCLUDES role assignment
         
-        Request body:
+        Request body for SDMA_ADMIN (state-level, no district needed):
         {
-            "email": "officer@state.gov.in",
+            "email": "state_admin@state.gov.in",
             "password": "SecurePass@2026",
-            "name": "Officer Name",
-            "mobile": "9876543210",
-            "designation": "Tahsildar",
-            "aadhar": "123456789012",
+            "first_name": "State",
+            "last_name": "Admin",
             "privilege": "SDMA_ADMIN",
             "state_id": 38,
-            "district_id": null,
             "is_active": true
         }
+        
+        Request body for DDMA_NODAL_OFFICER (district-level, district required):
+        {
+            "email": "officer@district.gov.in",
+            "password": "SecurePass@2026",
+            "first_name": "District",
+            "last_name": "Officer",
+            "privilege": "DDMA_NODAL_OFFICER",
+            "state_id": 38,
+            "district_id": 5,
+            "is_active": true
+        }
+        
+        Rules:
+        - SDMA_ADMIN: Only needs state_id (has access to all districts in state)
+        - DDMA_NODAL_OFFICER: Requires both state_id AND district_id
+        - SUPER_ADMIN/NDMA_ADMIN: No geographic restrictions needed
         """
         user_role = getattr(request.user, "user_role", None)
         if user_role not in UserRoles.ADMIN_ROLES:
@@ -152,6 +166,43 @@ class LoginView(viewsets.ViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ✅ Check district requirement based on privilege role
+        state_id = request.data.get('state_id')
+        district_id = request.data.get('district_id')
+        
+        # SDMA_ADMIN: Only needs state_id (has access to ALL districts in their state)
+        if privilege == UserRoles.SDMA_ADMIN:
+            if not state_id:
+                return Response(
+                    {
+                        "status_code": 400,
+                        "error": "state_id is required for SDMA_ADMIN"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # district_id NOT required for SDMA_ADMIN - they have access to all districts in state
+        
+        # DDMA_NODAL_OFFICER: Requires BOTH state_id AND district_id
+        elif privilege == UserRoles.DDMA_NODAL_OFFICER:
+            if not state_id:
+                return Response(
+                    {
+                        "status_code": 400,
+                        "error": "state_id is required for DDMA_NODAL_OFFICER"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not district_id:
+                return Response(
+                    {
+                        "status_code": 400,
+                        "error": "district_id is required for DDMA_NODAL_OFFICER"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        
+        # Other roles (SUPER_ADMIN, NDMA_ADMIN, etc.): No geographic restrictions
 
         # Convert privilege to user_role for serializer
         data = dict(request.data)
@@ -192,8 +243,8 @@ class LoginView(viewsets.ViewSet):
                 user=user,
                 role=role,
                 defaults={
-                    'state': request.data.get('state_id'),
-                    'district': request.data.get('district_id'),
+                    'state': state_id,
+                    'district': district_id,  # Will be None for SDMA_ADMIN (not needed)
                     'designation': request.data.get('designation'),
                     'is_active': True
                 }
@@ -206,8 +257,9 @@ class LoginView(viewsets.ViewSet):
                     "user": UserSerializer(user).data,
                     "privilege": privilege,
                     "role_assigned": created,
-                    "state_id": request.data.get('state_id'),
-                    "district_id": request.data.get('district_id'),
+                    "state_id": state_id,
+                    "district_id": district_id,
+                    "note": "SDMA_ADMIN: Has access to all districts in state" if privilege == UserRoles.SDMA_ADMIN else ""
                 },
                 status=status.HTTP_201_CREATED,
             )

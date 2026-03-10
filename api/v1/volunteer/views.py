@@ -17,7 +17,7 @@ from models.choices import (
     SkillChoice,
     AreaTypeChoice,
 )
-from django.db.models import Count
+from django.db.models import Count, Max
 
 
 # ============================================================================
@@ -195,7 +195,25 @@ class VolunteerBulkUploadAPIView(APIView):
             raise ValueError(f"Unable to parse Excel file: {str(e)}")
 
     def _role_allowed(self, user):
-        return getattr(user, "user_role", None) in self.ALLOWED_ROLES
+        # Allow if user's role is in the whitelist OR they have the 'view_volunteer' permission.
+        if getattr(user, "user_role", None) in self.ALLOWED_ROLES:
+            return True
+        perms = getattr(user, "permissions", None)
+        # If permissions aren't attached to the user object (typical with JWT),
+        # fetch them from AuthService which reads role permissions from DB.
+        if not perms:
+            try:
+                from services.auth_service import AuthService
+                perms = AuthService.get_user_permissions(user)
+            except Exception:
+                perms = None
+
+        try:
+            if perms and "view_volunteer" in perms:
+                return True
+        except Exception:
+            pass
+        return False
 
     def post(self, request):
 
@@ -314,18 +332,165 @@ class OrganizationCoverageAPIView(APIView):
         "SUPER_ADMIN",
         "NATIONAL_ADMIN",
         "STATE_ADMIN",
+        "SDMA_ADMIN",
         "DISTRICT_ADMIN",
+        "DDMA_NODAL_OFFICER",
         "YOUTH_ORG_ADMIN",
     ]
 
     def _role_allowed(self, user):
-        return getattr(user, "user_role", None) in self.ALLOWED_ROLES
+        # For JWT-authenticated users, user_role is not attached to request.user.
+        # Query the database to get the actual user object with role and permissions.
+        from django.contrib.auth import get_user_model
+        from models.role import UserRole, Permission
+        
+        User = get_user_model()
+        
+        try:
+            # Try to get user_role from the user object (may work in some cases)
+            user_role = getattr(user, "user_role", None)
+            
+            # If user_role is not on the request.user object, query the database
+            if not user_role:
+                db_user = User.objects.get(id=user.id)
+                user_role = db_user.user_role
+            
+            # Check if role is in the allowed list
+            if user_role in self.ALLOWED_ROLES:
+                return True
+            
+            # If role not in whitelist, check permissions by querying the database
+            db_user = User.objects.get(id=user.id)
+            user_role_obj = UserRole.objects.filter(user=db_user).first()
+            
+            if user_role_obj and user_role_obj.role:
+                perms = Permission.objects.filter(role=user_role_obj.role).values_list('code', flat=True)
+                if "view_volunteer" in perms:
+                    return True
+            
+            return False
+        except Exception as e:
+            return False
 
     def get(self, request):
         if not self._role_allowed(request.user):
             return Response({"error": "You do not have permission to view coverage"}, status=status.HTTP_403_FORBIDDEN)
 
+        from django.contrib.auth import get_user_model
+        from django.db.models import Q
+        from datetime import datetime
+        User = get_user_model()
+        
+        # Get user object from database to ensure we have all attributes
+        # Use select_related to load the state relationship (field is named state_id)
+        db_user = User.objects.select_related('state_id').get(id=request.user.id)
+        user_role = db_user.user_role
+        user_state = db_user.state_id
+        user_district = db_user.district_id
+        
+        # Build tabular coverage data
+        volunteers = Volunteer.objects.select_related('state', 'district', 'organization').filter(deleted_at__isnull=True)
+        
+        # Filter by user role
+        if user_role in ("SDMA_ADMIN", "STATE_ADMIN") and user_state:
+            volunteers = volunteers.filter(state_id=user_state)
+        elif user_role == "DISTRICT_ADMIN" and user_state and user_district:
+            volunteers = volunteers.filter(state_id=user_state, district_id=user_district)
+        
+        # Group by state, district, organization (avoiding INNER JOIN with org_type due to NULL values)
+        coverage_data = []
+        grouped = volunteers.exclude(
+            Q(state__isnull=True) | Q(district__isnull=True) | Q(organization__isnull=True)
+        ).values(
+            'state__id',
+            'state__name',
+            'district__id',
+            'district__name',
+            'organization__id',
+            'organization__name'
+        ).annotate(
+            volunteer_count=Count('id'),
+            latest_date=Max('created_at')
+        ).order_by('state__name', 'district__name', 'organization__name')
+        
+        # Build coverage data and fetch org_type for each organization
+        from models.organization import Organization
+        org_type_cache = {}
+        
+        for record in grouped:
+            org_id = record['organization__id']
+            if org_id not in org_type_cache:
+                try:
+                    org = Organization.objects.get(id=org_id)
+                    org_type_cache[org_id] = {
+                        'org_type_id': org.org_type_id,
+                        'org_type_code': org.org_type.code if org.org_type else None,
+                        'org_type_name': org.org_type.name if org.org_type else None
+                    }
+                except:
+                    org_type_cache[org_id] = {
+                        'org_type_id': None,
+                        'org_type_code': None,
+                        'org_type_name': None
+                    }
+            
+            org_data = org_type_cache[org_id]
+            coverage_data.append({
+                'state_id': record['state__id'],
+                'state': record['state__name'],
+                'district_id': record['district__id'],
+                'district': record['district__name'],
+                'organization_id': record['organization__id'],
+                'organization': record['organization__name'],
+                'organization_type_id': org_data['org_type_id'],
+                'organization_type_code': org_data['org_type_code'],
+                'organization_type': org_data['org_type_name'],
+                'no_of_volunteers': record['volunteer_count'],
+                'date': record['latest_date'].strftime('%Y-%m-%d %H:%M:%S') if record['latest_date'] else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        # Summary statistics for tabular format (excluding only null state/district/org)
+        valid_volunteers = volunteers.exclude(
+            Q(state__isnull=True) | Q(district__isnull=True) | Q(organization__isnull=True)
+        )
+        
+        # For SDMA_ADMIN and STATE_ADMIN, provide district-level view of all volunteers in their state
+        if user_role in ("SDMA_ADMIN", "STATE_ADMIN") and user_state:
+            volunteers_old = Volunteer.objects.filter(state_id=user_state, deleted_at__isnull=True)
+            
+            # Aggregate by district
+            district_agg = volunteers_old.values('district__id', 'district__name').annotate(volunteer_count=Count('id')).order_by('-volunteer_count')
+            
+            districts = []
+            for d in district_agg:
+                districts.append({
+                    'district_id': d.get('district__id'),
+                    'district_name': d.get('district__name'),
+                    'volunteer_count': d.get('volunteer_count')
+                })
+            
+            return Response({
+                'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'state_id': db_user.state_id.id if db_user.state_id else None,
+                'state_name': db_user.state_id.name if db_user.state_id else None,
+                'total_volunteers': volunteers_old.count(),
+                'districts': districts,
+                'tabular_format': {
+                    'summary': {
+                        'total_volunteers': valid_volunteers.count(),
+                        'unique_states': valid_volunteers.values('state_id').distinct().count(),
+                        'unique_districts': valid_volunteers.values('district_id').distinct().count(),
+                        'unique_organizations': valid_volunteers.values('organization_id').distinct().count(),
+                    },
+                    'coverage': coverage_data
+                }
+            }, status=status.HTTP_200_OK)
+        
+        # For other roles, show organization-level coverage
         orgs = Organization.objects.all()
+
+        if user_role == "DISTRICT_ADMIN" and user_state and user_district:
+            orgs = orgs.filter(state_id=user_state, district_id=user_district)
         result = []
 
         for org in orgs:
@@ -362,4 +527,364 @@ class OrganizationCoverageAPIView(APIView):
                 'states': states
             })
 
-        return Response({'organizations': result}, status=status.HTTP_200_OK)
+        return Response({
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'organizations': result,
+            'tabular_format': {
+                'summary': {
+                    'total_volunteers': valid_volunteers.count(),
+                    'unique_states': valid_volunteers.values('state_id').distinct().count(),
+                    'unique_districts': valid_volunteers.values('district_id').distinct().count(),
+                    'unique_organizations': valid_volunteers.values('organization_id').distinct().count(),
+                },
+                'coverage': coverage_data
+            }
+        }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# VOLUNTEER COVERAGE REPORT - TABULAR FORMAT (STATE/DISTRICT/ORG/COUNT)
+# ============================================================================
+
+class VolunteerCoverageReportAPIView(APIView):
+    """
+    Return volunteer coverage in tabular format: STATE, DISTRICT, ORGANIZATION, NO. OF VOL., DATE
+    Designed for easy viewing and CSV export
+    """
+    permission_classes = [IsAuthenticated]
+
+    ALLOWED_ROLES = [
+        "SUPER_ADMIN",
+        "NATIONAL_ADMIN",
+        "STATE_ADMIN",
+        "SDMA_ADMIN",
+        "DISTRICT_ADMIN",
+        "DDMA_NODAL_OFFICER",
+        "YOUTH_ORG_ADMIN",
+    ]
+
+    def _role_allowed(self, user):
+        from django.contrib.auth import get_user_model
+        from models.role import UserRole, Permission
+        
+        User = get_user_model()
+        
+        try:
+            user_role = getattr(user, "user_role", None)
+            
+            if not user_role:
+                db_user = User.objects.get(id=user.id)
+                user_role = db_user.user_role
+            
+            if user_role in self.ALLOWED_ROLES:
+                return True
+            
+            db_user = User.objects.get(id=user.id)
+            user_role_obj = UserRole.objects.filter(user=db_user).first()
+            
+            if user_role_obj and user_role_obj.role:
+                perms = Permission.objects.filter(role=user_role_obj.role).values_list('code', flat=True)
+                if "view_volunteer" in perms:
+                    return True
+            
+            return False
+        except Exception as e:
+            return False
+
+    def get(self, request):
+        if not self._role_allowed(request.user):
+            return Response({"error": "You do not have permission to view coverage"}, status=status.HTTP_403_FORBIDDEN)
+
+        from django.contrib.auth import get_user_model
+        from datetime import datetime
+        User = get_user_model()
+        
+        db_user = User.objects.select_related('state_id').get(id=request.user.id)
+        user_role = db_user.user_role
+        user_state = db_user.state_id
+        user_district = db_user.district_id
+        
+        # Get all volunteers based on user role
+        volunteers = Volunteer.objects.select_related('state', 'district', 'organization').filter(deleted_at__isnull=True)
+        
+        # Filter by user role
+        if user_role in ("SDMA_ADMIN", "STATE_ADMIN") and user_state:
+            volunteers = volunteers.filter(state_id=user_state)
+        elif user_role == "DISTRICT_ADMIN" and user_state and user_district:
+            volunteers = volunteers.filter(state_id=user_state, district_id=user_district)
+        
+        # Build coverage data: STATE | DISTRICT | ORGANIZATION | NO. OF VOL. | DATE
+        coverage_data = []
+        
+        # Group by state, district, organization (avoiding INNER JOIN with org_type due to NULL values)
+        from django.db.models import Q
+        grouped = volunteers.exclude(
+            Q(state__isnull=True) | Q(district__isnull=True) | Q(organization__isnull=True)
+        ).values(
+            'state__id',
+            'state__name',
+            'district__id',
+            'district__name',
+            'organization__id',
+            'organization__name'
+        ).annotate(
+            volunteer_count=Count('id'),
+            latest_date=Max('created_at')
+        ).order_by('state__name', 'district__name', 'organization__name')
+        
+        # Build coverage data and fetch org_type for each organization
+        from models.organization import Organization
+        org_type_cache = {}
+        
+        for record in grouped:
+            org_id = record['organization__id']
+            if org_id not in org_type_cache:
+                try:
+                    org = Organization.objects.get(id=org_id)
+                    org_type_cache[org_id] = {
+                        'org_type_id': org.org_type_id,
+                        'org_type_code': org.org_type.code if org.org_type else None,
+                        'org_type_name': org.org_type.name if org.org_type else None
+                    }
+                except:
+                    org_type_cache[org_id] = {
+                        'org_type_id': None,
+                        'org_type_code': None,
+                        'org_type_name': None
+                    }
+            
+            org_data = org_type_cache[org_id]
+            coverage_data.append({
+                'state_id': record['state__id'],
+                'state': record['state__name'],
+                'district_id': record['district__id'],
+                'district': record['district__name'],
+                'organization_id': record['organization__id'],
+                'organization': record['organization__name'],
+                'organization_type_id': org_data['org_type_id'],
+                'organization_type_code': org_data['org_type_code'],
+                'organization_type': org_data['org_type_name'],
+                'no_of_volunteers': record['volunteer_count'],
+                'date': record['latest_date'].strftime('%Y-%m-%d %H:%M:%S') if record['latest_date'] else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        # Summary statistics - exclude incomplete records (only null state/district/org will be excluded)
+        valid_volunteers = volunteers.exclude(
+            Q(state__isnull=True) | Q(district__isnull=True) | Q(organization__isnull=True)
+        )
+        total_volunteers = valid_volunteers.count()
+        unique_states = valid_volunteers.values('state_id').distinct().count()
+        unique_districts = valid_volunteers.values('district_id').distinct().count()
+        unique_organizations = valid_volunteers.values('organization_id').distinct().count()
+        
+        return Response({
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'summary': {
+                'total_volunteers': total_volunteers,
+                'unique_states': unique_states,
+                'unique_districts': unique_districts,
+                'unique_organizations': unique_organizations,
+            },
+            'coverage': coverage_data
+        }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# VOLUNTEER EXPORT TO EXCEL - ROLE-BASED
+# ============================================================================
+
+class VolunteerExportAPIView(APIView):
+    """
+    GET /api/v1/volunteer/export/
+    
+    Export volunteer data to Excel based on user role:
+    - SUPER_ADMIN: All volunteers nationwide
+    - NATIONAL_ADMIN: All volunteers nationwide
+    - STATE_ADMIN: All volunteers in their state
+    - SDMA_ADMIN: All volunteers in their state
+    - DISTRICT_ADMIN: All volunteers in their district
+    - DDMA_NODAL_OFFICER: All volunteers in their district
+    - YOUTH_ORG_ADMIN: All volunteers in their organization
+    """
+    permission_classes = [IsAuthenticated]
+
+    ALLOWED_ROLES = [
+        "SUPER_ADMIN",
+        "NATIONAL_ADMIN",
+        "STATE_ADMIN",
+        "SDMA_ADMIN",
+        "DISTRICT_ADMIN",
+        "DDMA_NODAL_OFFICER",
+        "YOUTH_ORG_ADMIN",
+    ]
+
+    def _role_allowed(self, user):
+        """Check if user role is allowed to export"""
+        user_role = getattr(user, "user_role", None)
+        
+        if not user_role:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            try:
+                db_user = User.objects.get(id=user.id)
+                user_role = db_user.user_role
+            except:
+                return False
+        
+        return user_role in self.ALLOWED_ROLES
+
+    def get(self, request):
+        """Export volunteer data to Excel
+        
+        Query Parameters:
+        - district_id: Filter by specific district (for STATE_ADMIN/SDMA_ADMIN)
+        - state_id: Filter by specific state (for SUPER_ADMIN/NATIONAL_ADMIN only)
+        """
+        if not self._role_allowed(request.user):
+            return Response(
+                {"error": "You do not have permission to export volunteers"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get user details from database
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        db_user = User.objects.select_related('state_id').get(id=request.user.id)
+        user_role = db_user.user_role
+        user_state = db_user.state_id
+        user_district = db_user.district_id
+        
+        # Get query parameters
+        district_id = request.query_params.get('district_id')
+
+        # Filter volunteers based on role and geography
+        volunteers = Volunteer.objects.filter(deleted_at__isnull=True)
+
+        # Apply role-based filtering
+        if user_role in ["STATE_ADMIN", "SDMA_ADMIN"] and user_state:
+            volunteers = volunteers.filter(state_id=user_state)
+            
+            # Allow STATE_ADMIN to filter by specific district within their state
+            if district_id:
+                try:
+                    volunteers = volunteers.filter(district_id=int(district_id))
+                    file_name = f"volunteers_{user_state.name}_district_{district_id}_{db_user.id}.xlsx"
+                except (ValueError, TypeError):
+                    return Response(
+                        {"error": "Invalid district_id parameter"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                file_name = f"volunteers_{user_state.name}_{db_user.id}.xlsx"
+        elif user_role in ["DISTRICT_ADMIN", "DDMA_NODAL_OFFICER"] and user_state and user_district:
+            volunteers = volunteers.filter(state_id=user_state, district_id=user_district)
+            file_name = f"volunteers_{user_state.name}_{user_district.name}_{db_user.id}.xlsx"
+        elif user_role == "YOUTH_ORG_ADMIN":
+            # Get organizations managed by this user
+            from models.organization import Organization
+            org_ids = Organization.objects.filter(
+                # Assuming there's a way to link organization to user
+            ).values_list('id', flat=True)
+            volunteers = volunteers.filter(organization_id__in=org_ids) if org_ids else volunteers.none()
+            file_name = f"volunteers_org_{db_user.id}.xlsx"
+        else:  # SUPER_ADMIN, NATIONAL_ADMIN
+            file_name = f"volunteers_all_{db_user.id}.xlsx"
+
+        # Create Excel workbook
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Volunteers"
+
+        # Define headers
+        headers = [
+            "ID", "MIS ID", "Name", "Salutation", "Gender", "Blood Group", "DOB",
+            "Aadhar", "Mobile", "Email", "MyBharat ID", "Marital Status",
+            "Emergency Contact", "Education", "Education Field", "Skill", "Area Type",
+            "State", "District", "Postal Code", "Town", "Village", "Full Address",
+            "Organization", "Created At"
+        ]
+
+        # Write headers
+        for col_idx, header in enumerate(headers, start=1):
+            cell = worksheet.cell(row=1, column=col_idx, value=header)
+            cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
+            cell.fill = openpyxl.styles.PatternFill(start_color="667eea", end_color="667eea", fill_type="solid")
+
+        # Write volunteer data
+        row_idx = 2
+        for vol in volunteers.select_related('state', 'district', 'organization'):
+            worksheet.cell(row=row_idx, column=1, value=vol.id)
+            worksheet.cell(row=row_idx, column=2, value=vol.mis_id)
+            worksheet.cell(row=row_idx, column=3, value=vol.name)
+            worksheet.cell(row=row_idx, column=4, value=self._get_choice_label("salutation", vol.salutation_id))
+            worksheet.cell(row=row_idx, column=5, value=self._get_choice_label("gender", vol.gender_id))
+            worksheet.cell(row=row_idx, column=6, value=self._get_choice_label("bloodgroup", vol.bloodgroup_id))
+            worksheet.cell(row=row_idx, column=7, value=vol.dob.strftime('%Y-%m-%d') if vol.dob else "")
+            worksheet.cell(row=row_idx, column=8, value=vol.aadhar or "")
+            worksheet.cell(row=row_idx, column=9, value=vol.mobile or "")
+            worksheet.cell(row=row_idx, column=10, value=vol.email or "")
+            worksheet.cell(row=row_idx, column=11, value=vol.mybharat_id or "")
+            worksheet.cell(row=row_idx, column=12, value=self._get_choice_label("maritalstatus", vol.maritalstatus_id))
+            worksheet.cell(row=row_idx, column=13, value=vol.emergency_contact or "")
+            worksheet.cell(row=row_idx, column=14, value=self._get_choice_label("education", vol.education_id))
+            worksheet.cell(row=row_idx, column=15, value=vol.education_field or "")
+            worksheet.cell(row=row_idx, column=16, value=self._get_choice_label("skill", vol.skill_id))
+            worksheet.cell(row=row_idx, column=17, value=self._get_choice_label("area_type", vol.area_type_id))
+            worksheet.cell(row=row_idx, column=18, value=vol.state.name if vol.state else "")
+            worksheet.cell(row=row_idx, column=19, value=vol.district.name if vol.district else "")
+            worksheet.cell(row=row_idx, column=20, value=vol.postal_code or "")
+            worksheet.cell(row=row_idx, column=21, value=vol.town or "")
+            worksheet.cell(row=row_idx, column=22, value=vol.village or "")
+            worksheet.cell(row=row_idx, column=23, value=vol.full_address or "")
+            worksheet.cell(row=row_idx, column=24, value=vol.organization.name if vol.organization else "")
+            worksheet.cell(row=row_idx, column=25, value=vol.created_at.strftime('%Y-%m-%d %H:%M:%S') if vol.created_at else "")
+            row_idx += 1
+
+        # Auto-adjust column widths
+        for col_idx, header in enumerate(headers, start=1):
+            max_length = len(str(header))
+            column_letter = openpyxl.utils.get_column_letter(col_idx)
+            worksheet.column_dimensions[column_letter].width = min(max_length + 2, 30)
+
+        # Return Excel file as response
+        from django.http import HttpResponse
+        from io import BytesIO
+        
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{file_name}"'
+        
+        excel_file = BytesIO()
+        workbook.save(excel_file)
+        excel_file.seek(0)
+        response.write(excel_file.read())
+        
+        return response
+
+    def _get_choice_label(self, choice_type, choice_id):
+        """Get label for choice ID"""
+        if not choice_id:
+            return ""
+        
+        try:
+            if choice_type == "salutation":
+                choice = SalutationChoice.objects.get(code=choice_id)
+            elif choice_type == "gender":
+                choice = GenderChoice.objects.get(code=choice_id)
+            elif choice_type == "bloodgroup":
+                choice = BloodGroupChoice.objects.get(code=choice_id)
+            elif choice_type == "maritalstatus":
+                choice = MaritalStatusChoice.objects.get(code=choice_id)
+            elif choice_type == "education":
+                choice = EducationChoice.objects.get(code=choice_id)
+            elif choice_type == "skill":
+                choice = SkillChoice.objects.get(code=choice_id)
+            elif choice_type == "area_type":
+                choice = AreaTypeChoice.objects.get(code=choice_id)
+            else:
+                return ""
+            
+            return choice.label if hasattr(choice, 'label') else str(choice)
+        except:
+            return ""

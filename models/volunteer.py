@@ -65,7 +65,7 @@ class Volunteer(models.Model):
         (3, "Semi-Urban"),
     ]
 
-    mis_id = models.CharField(max_length=50, unique=True)
+    mis_id = models.IntegerField(unique=True)
 
     name = models.CharField(max_length=100)
 
