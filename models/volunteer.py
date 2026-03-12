@@ -2,6 +2,7 @@ from django.db import models
 from .state import State
 from .district import District
 from .organization import Organization
+from .bulk_upload_session import BulkUploadSession
 
 
 class Volunteer(models.Model):
@@ -143,6 +144,14 @@ class Volunteer(models.Model):
         null=True,
         blank=True,
         related_name="volunteers"
+    )
+
+    bulk_upload_session = models.ForeignKey(
+        BulkUploadSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_volunteers"
     )
 
     state = models.ForeignKey(

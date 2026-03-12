@@ -8,8 +8,10 @@ from rest_framework import status
 
  
 from api.v1.views.auth_views import LoginView, UserViewSet
+from api.v1.views.super_admin_views import SuperAdminUserViewSet
  
 from api.v1.views.organization_views import OrganizationViewSet, get_organization_types
+from api.v1.views.debug_views import resolve_user_scope
 
 # ============================================================================
 # RBAC VIEWS
@@ -69,6 +71,13 @@ router.register(
     r'users',
     UserViewSet,
     basename='user'
+)
+
+# Super Admin: user management (only SUPER_ADMIN can edit/deactivate)
+router.register(
+    r'super-admin/users',
+    SuperAdminUserViewSet,
+    basename='super-admin-user'
 )
 
 # ────────────────────────────────────────────────────────────────────────
@@ -195,6 +204,8 @@ urlpatterns = [
     # CUSTOM DISTRICTS BY STATE ENDPOINT - MUST BE BEFORE router.urls
     # GET /api/v1/districts/{state_id}/
     re_path(r'^districts/(?P<state_id>[0-9]+)/$', get_districts_by_state_id, name='districts-by-state-id'),
+    # Debug: resolve user's scope (authenticated)
+    path('debug/resolve-user/', resolve_user_scope, name='debug-resolve-user'),
 ] + router.urls + [
     # JWT Token Refresh
     # POST /api/v1/auth/token/refresh/
