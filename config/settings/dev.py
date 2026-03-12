@@ -35,7 +35,7 @@ CORS_ALLOW_HEADERS = [
 # DATABASE - DEVELOPMENT (override to MariaDB if env vars provided)
 # ==========================
 # If DB_NAME_DEV is set in environment or .env, use MariaDB (mysqlclient)
-db_name = os.getenv('DB_NAME_DEV')
+db_name = os.getenv('DB_NAME_DEV', os.getenv('DB_NAME', 'testdb'))
 if db_name:
     DATABASES = {
         'default': {

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate, get_user_model
+from models.user import ROLE_CHOICES
 
 User = get_user_model()
 
@@ -10,7 +11,26 @@ class UserLoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
     
     def validate(self, data):
-        user = authenticate(username=data['email'], password=data['password'])
+        email = data.get('email')
+        password = data.get('password')
+
+        # Try a case-insensitive lookup first (handles UI-created users)
+        try:
+            user = User.objects.filter(email_address__iexact=email).first()
+        except Exception:
+            user = None
+
+        # If user found, check password directly
+        if user:
+            if not user.check_password(password):
+                raise serializers.ValidationError("Invalid email or password")
+            if not user.is_active:
+                raise serializers.ValidationError("User account is disabled")
+            data['user'] = user
+            return data
+
+        # Fallback to Django authenticate (handles configured backends)
+        user = authenticate(username=email, password=password)
         if not user:
             raise serializers.ValidationError("Invalid email or password")
         if not user.is_active:
@@ -110,10 +130,17 @@ class UserCreateSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """User details serializer"""
     email = serializers.CharField(source='email_address', read_only=True)
-    role_display = serializers.CharField(source='get_user_role_display', read_only=True)
+    role_display = serializers.SerializerMethodField(read_only=True)
     permissions = serializers.SerializerMethodField(read_only=True)
     state_name = serializers.CharField(source='state_id.name', read_only=True, allow_null=True)
     district_name = serializers.CharField(source='district_id.name', read_only=True, allow_null=True)
+    
+    def get_role_display(self, obj):
+        """Get human-readable role name"""
+        if obj.user_role:
+            role_dict = dict(ROLE_CHOICES)
+            return role_dict.get(obj.user_role, obj.user_role)
+        return ""
     
     def get_permissions(self, obj):
         """Get all effective permissions for the user"""

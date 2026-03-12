@@ -109,7 +109,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             from models.role import UserRole
             user_role = UserRole.objects.filter(user=user).first()
             if user_role and user_role.organization:
-                return queryset.filter(id=user_role.organization.id)
+                # UserRole.organization is stored as a free-text field (id or name).
+                # Support both numeric id values and organization name lookups.
+                try:
+                    org_id = int(user_role.organization)
+                    return queryset.filter(id=org_id)
+                except Exception:
+                    return queryset.filter(name__iexact=user_role.organization)
             return queryset.none()
         
         # VOLUNTEER: see their organization only

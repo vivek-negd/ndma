@@ -636,3 +636,64 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         
         # All others: see only themselves
         return queryset.filter(id=user.id)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def get_all_users_with_privileges(self, request):
+        """
+        SUPER_ADMIN ONLY: Get all users with their privilege/role data
+        
+        Response Format:
+        {
+            "status_code": 200,
+            "count": 25,
+            "data": [
+                {
+                    "id": 1,
+                    "name": "John Doe",
+                    "email": "john@example.com",
+                    "role": "SUPER_ADMIN",
+                    "active": "Yes",
+                    "actions": ["view", "edit", "delete"]
+                },
+                ...
+            ]
+        }
+        
+        Access: SUPER_ADMIN only
+        """
+        # Check if user is SUPER_ADMIN
+        user = request.user
+        if user.user_role != UserRoles.SUPER_ADMIN:
+            return Response(
+                {
+                    "status_code": 403,
+                    "error": "Only SUPER_ADMIN can access this endpoint",
+                    "message": "You do not have permission to view all users with privileges"
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get all users
+        users = User.objects.all().order_by('id')
+
+        # Format response with ID, Name, Email, Role, Active, Actions
+        users_data = []
+        for user_obj in users:
+            user_data = {
+                "id": user_obj.id,
+                "name": user_obj.name or user_obj.email_address,
+                "email": user_obj.email_address,
+                "role": user_obj.user_role,
+                "active": "Yes" if user_obj.is_active else "No",
+                "actions": ["view", "edit", "delete"]  # Available actions for this user
+            }
+            users_data.append(user_data)
+
+        return Response(
+            {
+                "status_code": 200,
+                "count": len(users_data),
+                "data": users_data
+            },
+            status=status.HTTP_200_OK
+        )

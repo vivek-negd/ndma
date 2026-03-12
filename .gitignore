@@ -61,3 +61,18 @@ dist/
 *.swp
 *.swo
 *~
+# Security - Never commit credentials
+SUPERADMIN_CREDENTIALS.txt
+ADMIN_CREDENTIALS.txt
+*.credentials.txt
+
+# Runtime and local upload artifacts
+logs/
+training_sessions/
+
+# Spreadsheet exports and temp upload files
+~$*.xlsx
+temp_*.xlsx
+test_upload.xlsx
+*_Export.xlsx
+

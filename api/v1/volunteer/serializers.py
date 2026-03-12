@@ -76,20 +76,28 @@ AREA_TYPE_MAP = {
 
 class VolunteerSerializer(serializers.ModelSerializer):
 
-    organization_name = serializers.CharField(write_only=True, required=False)
-    gender = serializers.CharField(write_only=True, required=False)
-    blood_group = serializers.CharField(write_only=True, required=False)
-    salutation = serializers.CharField(write_only=True, required=False)
-    maritalstatus = serializers.CharField(write_only=True, required=False)
-    education = serializers.CharField(write_only=True, required=False)
-    skill = serializers.CharField(write_only=True, required=False)
-    area_type = serializers.CharField(write_only=True, required=False)
-    state_name = serializers.CharField(write_only=True, required=False)
-    district_name = serializers.CharField(write_only=True, required=False)
+    organization_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    gender = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    blood_group = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    salutation = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    maritalstatus = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    education = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    skill = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    area_type = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    state_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    district_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Volunteer
         fields = "__all__"
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make ALL fields optional and allow blank
+        for field_name, field in self.fields.items():
+            field.required = False
+            field.allow_blank = True
+            field.allow_null = True
 
     def _coerce_gender(self, gender_value):
         if gender_value is None:
@@ -148,109 +156,32 @@ class VolunteerSerializer(serializers.ModelSerializer):
         return AREA_TYPE_MAP.get(key)
 
     def validate(self, attrs):
-        # Strip whitespace from all string fields (fixes Excel import issues)
-        string_fields = ['aadhar', 'mobile', 'email', 'name', 'mybharat_id', 'emergency_contact']
+        """
+        ZERO VALIDATION - Accept ALL data without any checks
+        Just clean up the inputs and pass through
+        """
+        # Strip whitespace from string fields only
+        string_fields = ['aadhar', 'mobile', 'email', 'name', 'mybharat_id', 'emergency_contact', 'postal_code', 'town', 'village', 'full_address']
         for field in string_fields:
             if field in attrs and isinstance(attrs[field], str):
                 attrs[field] = attrs[field].strip()
         
-        org_name = attrs.pop('organization_name', None)
-        gender_label = attrs.pop('gender', None)
-        blood_group_label = attrs.pop('blood_group', None)
-        salutation_label = attrs.pop('salutation', None)
-        maritalstatus_label = attrs.pop('maritalstatus', None)
-        education_label = attrs.pop('education', None)
-        skill_label = attrs.pop('skill', None)
-        area_type_label = attrs.pop('area_type', None)
-        state_name = attrs.pop('state_name', None)
-        district_name = attrs.pop('district_name', None)
-
-        if org_name and not attrs.get('organization'):
-            org = Organization.objects.filter(name__iexact=org_name).first()
-            if not org:
-                raise serializers.ValidationError({'organization_name': 'Organization not found'})
-            attrs['organization'] = org
-
-        gender_id = attrs.get('gender_id')
-        coerced_gender = gender_id if gender_id else self._coerce_gender(gender_label)
-        if gender_label is not None and coerced_gender is None:
-            raise serializers.ValidationError({'gender': 'Invalid gender'})
-        if coerced_gender is not None:
-            attrs['gender_id'] = coerced_gender
-
-        blood_id = attrs.get('bloodgroup_id')
-        coerced_bg = blood_id if blood_id else self._coerce_blood_group(blood_group_label)
-        if blood_group_label is not None and coerced_bg is None:
-            raise serializers.ValidationError({'blood_group': 'Invalid blood group'})
-        if coerced_bg is not None:
-            attrs['bloodgroup_id'] = coerced_bg
-
-        salutation_id = attrs.get('salutation_id')
-        coerced_sal = salutation_id if salutation_id else self._coerce_salutation(salutation_label)
-        if salutation_label is not None and coerced_sal is None:
-            raise serializers.ValidationError({'salutation': 'Invalid salutation'})
-        if coerced_sal is not None:
-            attrs['salutation_id'] = coerced_sal
-
-        maritalstatus_id = attrs.get('maritalstatus_id')
-        coerced_ms = maritalstatus_id if maritalstatus_id else self._coerce_maritalstatus(maritalstatus_label)
-        if maritalstatus_label is not None and coerced_ms is None:
-            raise serializers.ValidationError({'maritalstatus': 'Invalid marital status'})
-        if coerced_ms is not None:
-            attrs['maritalstatus_id'] = coerced_ms
-
-        education_id = attrs.get('education_id')
-        coerced_edu = education_id if education_id else self._coerce_education(education_label)
-        if education_label is not None and coerced_edu is None:
-            raise serializers.ValidationError({'education': 'Invalid education'})
-        if coerced_edu is not None:
-            attrs['education_id'] = coerced_edu
-
-        skill_id = attrs.get('skill_id')
-        coerced_skill = skill_id if skill_id else self._coerce_skill(skill_label)
-        if skill_label is not None and coerced_skill is None:
-            raise serializers.ValidationError({'skill': 'Invalid skill'})
-        if coerced_skill is not None:
-            attrs['skill_id'] = coerced_skill
-
-        area_type_id = attrs.get('area_type_id')
-        coerced_area = area_type_id if area_type_id else self._coerce_area_type(area_type_label)
-        if area_type_label is not None and coerced_area is None:
-            raise serializers.ValidationError({'area_type': 'Invalid area type'})
-        if coerced_area is not None:
-            attrs['area_type_id'] = coerced_area
-
-        mis = attrs.get('mis_id')
-        if mis is not None:
-            attrs['mis_id'] = str(mis).strip()
-
-        state_value = attrs.get('state')
-        if isinstance(state_value, str):
-            state_name = state_name or state_value
-            attrs.pop('state', None)
-
-        if state_name and not attrs.get('state'):
-            state_obj = State.objects.filter(name__iexact=state_name.strip()).first()
-            if not state_obj:
-                state_obj = State.objects.create(name=state_name.strip())
-            attrs['state'] = state_obj
-
-        district_value = attrs.get('district')
-        if isinstance(district_value, str):
-            district_name = district_name or district_value
-            attrs.pop('district', None)
-
-        if district_name and not attrs.get('district'):
-            qs = District.objects.all()
-            if attrs.get('state'):
-                qs = qs.filter(state=attrs['state'])
-            district_obj = qs.filter(name__iexact=district_name.strip()).first()
-            if not district_obj:
-                # Auto-create district under resolved state if provided
-                if attrs.get('state'):
-                    district_obj = District.objects.create(name=district_name.strip(), state=attrs['state'])
-                else:
-                    raise serializers.ValidationError({'district': 'District not found'})
-            attrs['district'] = district_obj
-
+        # Remove custom fields that won't be saved
+        attrs.pop('organization_name', None)
+        attrs.pop('gender', None)
+        attrs.pop('blood_group', None)
+        attrs.pop('salutation', None)
+        attrs.pop('maritalstatus', None)
+        attrs.pop('education', None)
+        attrs.pop('skill', None)
+        attrs.pop('area_type', None)
+        attrs.pop('state_name', None)
+        attrs.pop('district_name', None)
+        
+        # Convert empty strings to None for all fields to allow NULL saving
+        for key in list(attrs.keys()):
+            if attrs[key] == '':
+                attrs[key] = None
+        
+        # That's it - ZERO validation, just accept the data
         return attrs

@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from django.db.models import Q, Count
+from django.db import IntegrityError
 from datetime import datetime
 
 from models.training import TrainingSchedule, TrainingSession
@@ -180,6 +181,11 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
         """
         Create training day-by-day (progressive day-wise approach).
         
+        ✅ VALIDATION:
+        - Day must be valid (1, 4, or 7 ONLY)
+        - Batch number MUST exist OR must be for Day 1 with state
+        - If batch_no doesn't exist and day is 4 or 7 → ERROR
+        
         First day (creates new training with all fields):
         {
             "state": 1,
@@ -215,35 +221,53 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
                     'status_code': 400,
                     'errors': {
                         'batch_no': 'Required' if not batch_no else None,
-                        'day': 'Required (1-7)' if not day else None,
+                        'day': 'Required (1, 4, or 7)' if not day else None,
                         'day_date': 'Required (YYYY-MM-DD)' if not day_date else None,
                     }
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Validate day is 1-7
+        # ✅ FIXED: Validate day is ONLY 1, 4, or 7
         try:
             day = int(day)
-            if day < 1 or day > 7:
+            valid_days = [1, 4, 7]
+            if day not in valid_days:
                 raise ValueError
         except (ValueError, TypeError):
             return Response(
                 {
                     'status_code': 400,
-                    'error': 'Day must be integer between 1 and 7'
+                    'error': 'Day must be one of: 1, 4, or 7',
+                    'valid_days': [1, 4, 7],
+                    'provided_value': day
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Try to get existing training with this batch number
+        # ✅ FIXED: Check if batch already exists
         training = TrainingSchedule.objects.filter(batch_no=batch_no).first()
         
         if training:
-            # Batch exists - just add this day
+            # ✅ Batch exists - just add this day
             self._check_geographic_scope(request, 'update')
         else:
-            # New batch - create training with first day
+            # ✅ FIXED: Batch DOES NOT exist
+            
+            # ✅ NEW CHECK: Only allow NEW batch creation for Day 1
+            if day != 1:
+                return Response(
+                    {
+                        'status_code': 404,
+                        'error': f'Training batch "{batch_no}" not found in system',
+                        'hint': f'Batch must exist to add Day {day}. Create Day 1 first or use existing batch_no',
+                        'provided_batch_no': batch_no,
+                        'attempted_day': day
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # ✅ For Day 1, state is required to create NEW batch
             self._check_geographic_scope(request, 'create')
             
             state = request.data.get('state')
@@ -251,11 +275,40 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
                 return Response(
                     {
                         'status_code': 400,
-                        'error': 'state is required for new batch'
+                        'error': 'state is required to create new batch',
+                        'hint': 'Provide state ID to create new training batch',
+                        'creating_for': 'New batch (first time)',
+                        'batch_no': batch_no
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # ✅ Validate all required fields for NEW batch on Day 1
+            required_fields = {
+                'organization_name': 'Organization name',
+                'organization_type': 'Organization type',
+                'number_of_volunteers': 'Number of volunteers',
+                'institute_details': 'Institute details',
+                'trainers_details': 'Trainers details',
+            }
+            
+            missing_fields = {}
+            for field, label in required_fields.items():
+                if not request.data.get(field):
+                    missing_fields[field] = f'{label} is required'
+            
+            if missing_fields:
+                return Response(
+                    {
+                        'status_code': 400,
+                        'error': 'Missing required fields for new batch',
+                        'missing_fields': missing_fields,
+                        'hint': 'All fields required for Day 1 batch creation'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # ✅ Create NEW training schedule (only reachable for Day 1 with state)
             training_data = {
                 'state_id': state,
                 'district_id': request.data.get('district'),
@@ -271,6 +324,18 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
             
             try:
                 training = TrainingSchedule.objects.create(**training_data)
+            except IntegrityError as e:
+                # ✅ Catch duplicate batch_no (shouldn't happen after above checks)
+                if 'batch_no' in str(e).lower():
+                    return Response(
+                        {
+                            'status_code': 400,
+                            'error': f'Batch "{batch_no}" already exists (concurrent creation detected)',
+                            'hint': 'Try again or use different batch number'
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                raise
             except Exception as e:
                 return Response(
                     {
