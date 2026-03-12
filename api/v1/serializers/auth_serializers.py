@@ -23,7 +23,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
     """Create user - SUPER_ADMIN/NDMA_ADMIN only. ALL fields required."""
     password = serializers.CharField(write_only=True, min_length=8)
     email = serializers.EmailField(source='email_address')
-    state_id = serializers.IntegerField(required=True)
+    state_id = serializers.IntegerField(required=False, allow_null=True)
     district_id = serializers.IntegerField(required=False, allow_null=True)
     
     class Meta:
@@ -62,9 +62,17 @@ class UserCreateSerializer(serializers.ModelSerializer):
         return value
     
     def validate_district_id(self, value):
-        if value is None:
-            return value
+        # Handle empty string or None
+        if value is None or value == '' or value == 0:
+            return None
+        
         from models.district import District
+        # Validate that district exists
+        try:
+            value = int(value)
+        except (ValueError, TypeError):
+            raise serializers.ValidationError("district_id must be a valid integer")
+        
         if not District.objects.filter(id=value).exists():
             raise serializers.ValidationError(f"District with ID {value} does not exist")
         return value
@@ -83,9 +91,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
             state = State.objects.get(id=state_id)
             validated_data['state_id'] = state
         
+        # Only convert district if provided
         if district_id:
             district = District.objects.get(id=district_id)
             validated_data['district_id'] = district
+        else:
+            # Explicitly set to None if not provided
+            validated_data['district_id'] = None
         
         user = User.objects.create_user(
             email_address=email,
