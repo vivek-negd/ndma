@@ -8,7 +8,7 @@ from rest_framework import status
 
  
 from api.v1.views.auth_views import LoginView, UserViewSet
-from api.v1.views.super_admin_views import SuperAdminUserViewSet
+# from api.v1.views.super_admin_views import SuperAdminUserViewSet  # Disabled: file missing
  
 from api.v1.views.organization_views import OrganizationViewSet, get_organization_types
 from api.v1.views.debug_views import resolve_user_scope
@@ -74,11 +74,6 @@ router.register(
 )
 
 # Super Admin: user management (only SUPER_ADMIN can edit/deactivate)
-router.register(
-    r'super-admin/users',
-    SuperAdminUserViewSet,
-    basename='super-admin-user'
-)
 
 # ────────────────────────────────────────────────────────────────────────
 # ORGANIZATION ENDPOINTS

@@ -106,3 +106,91 @@ class TrainingSessionMediaSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class TrainingSessionMediaDetailSerializer(serializers.ModelSerializer):
+    """Serializer for media details with image URLs"""
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TrainingSessionMedia
+        fields = ['id', 'image_url', 'file_name', 'file_size', 'uploaded_by_id', 'uploaded_at']
+        read_only_fields = ['id', 'image_url', 'file_name', 'file_size', 'uploaded_at']
+    
+    def get_image_url(self, obj):
+        """Get full image URL"""
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+
+class TrainingSessionDetailSerializer(serializers.ModelSerializer):
+    """Serializer for session details with media"""
+    media_files = TrainingSessionMediaDetailSerializer(many=True, read_only=True, source='media_files.all')
+    total_media_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TrainingSession
+        fields = ['id', 'day_label', 'date', 'notes', 'media_files', 'total_media_count', 'created_at']
+        read_only_fields = ['id', 'day_label', 'date', 'notes', 'media_files', 'total_media_count', 'created_at']
+    
+    def get_total_media_count(self, obj):
+        """Get total media count for this session"""
+        return obj.media_files.count()
+
+
+class TrainingSessionHistorySerializer(serializers.ModelSerializer):
+    """Serializer for training session history - returns basic session info with media"""
+    state_name = serializers.CharField(source='state.name', read_only=True)
+    district_name = serializers.CharField(source='district.name', read_only=True)
+    sessions = TrainingSessionDetailSerializer(many=True, read_only=True, source='sessions.all')
+    total_sessions = serializers.SerializerMethodField()
+    total_media = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TrainingSchedule
+        fields = [
+            'id', 
+            'batch_no', 
+            'organization_name', 
+            'organization_type',
+            'state',
+            'state_name',
+            'district',
+            'district_name',
+            'number_of_volunteers',
+            'sessions',
+            'total_sessions',
+            'total_media',
+            'created_at'
+        ]
+        read_only_fields = [
+            'id',
+            'batch_no',
+            'organization_name',
+            'organization_type',
+            'state',
+            'state_name',
+            'district',
+            'district_name',
+            'number_of_volunteers',
+            'sessions',
+            'total_sessions',
+            'total_media',
+            'created_at'
+        ]
+    
+    def get_total_sessions(self, obj):
+        """Get total sessions count"""
+        return obj.sessions.count()
+    
+    def get_total_media(self, obj):
+        """Get total media count across all sessions"""
+        from django.db.models import Count
+        total = TrainingSessionMedia.objects.filter(
+            session__schedule=obj
+        ).count()
+        return total

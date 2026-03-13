@@ -3,13 +3,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q, Count
 from django.db import IntegrityError
 from datetime import datetime
 
 from models.training import TrainingSchedule, TrainingSession
 from models.training_media import TrainingSessionMedia
-from api.v1.serializers.training_serializers import TrainingScheduleSerializer
+from api.v1.serializers.training_serializers import TrainingScheduleSerializer, TrainingSessionHistorySerializer
 from core.constants import UserRoles, ErrorMessages
 
 
@@ -177,6 +178,163 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def create_daywise_with_media(self, request):
+        """
+        Create training session day-wise and upload media in one request.
+        Accepts multipart/form-data with session fields and media files.
+        """
+        self._check_create_permission(request)
+        self._check_geographic_scope(request, 'create')
+
+        batch_no = request.data.get('batch_no')
+        day = request.data.get('day')
+        day_date = request.data.get('day_date')
+        day_notes = request.data.get('day_notes', '')
+        media_files = request.FILES.getlist('images')
+        uploaded_by = request.data.get('uploaded_by')
+
+        # Validate required fields
+        if not batch_no or not day or not day_date:
+            return Response({
+                'status_code': 400,
+                'errors': {
+                    'batch_no': 'Required' if not batch_no else None,
+                    'day': 'Required (1, 4, or 7)' if not day else None,
+                    'day_date': 'Required (YYYY-MM-DD)' if not day_date else None,
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            day = int(day)
+            valid_days = [1, 4, 7]
+            if day not in valid_days:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({
+                'status_code': 400,
+                'error': 'Day must be one of: 1, 4, or 7',
+                'valid_days': [1, 4, 7],
+                'provided_value': day
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        training = TrainingSchedule.objects.filter(batch_no=batch_no).first()
+        if training:
+            self._check_geographic_scope(request, 'update')
+        else:
+            if day != 1:
+                return Response({
+                    'status_code': 404,
+                    'error': f'Training batch "{batch_no}" not found in system',
+                    'hint': f'Batch must exist to add Day {day}. Create Day 1 first or use existing batch_no',
+                    'provided_batch_no': batch_no,
+                    'attempted_day': day
+                }, status=status.HTTP_404_NOT_FOUND)
+            self._check_geographic_scope(request, 'create')
+            state = request.data.get('state')
+            if not state:
+                return Response({
+                    'status_code': 400,
+                    'error': 'state is required to create new batch',
+                    'hint': 'Provide state ID to create new training batch',
+                    'creating_for': 'New batch (first time)',
+                    'batch_no': batch_no
+                }, status=status.HTTP_400_BAD_REQUEST)
+            required_fields = {
+                'organization_name': 'Organization name',
+                'organization_type': 'Organization type',
+                'number_of_volunteers': 'Number of volunteers',
+                'institute_details': 'Institute details',
+                'trainers_details': 'Trainers details',
+            }
+            missing_fields = {}
+            for field, label in required_fields.items():
+                if not request.data.get(field):
+                    missing_fields[field] = f'{label} is required'
+            if missing_fields:
+                return Response({
+                    'status_code': 400,
+                    'error': 'Missing required fields for new batch',
+                    'missing_fields': missing_fields,
+                    'hint': 'All fields required for Day 1 batch creation'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            training_data = {
+                'state_id': state,
+                'district_id': request.data.get('district'),
+                'organization_name': request.data.get('organization_name'),
+                'organization_type': request.data.get('organization_type', 'OTHER'),
+                'number_of_volunteers': request.data.get('number_of_volunteers', 0),
+                'batch_no': batch_no,
+                'institute_details': request.data.get('institute_details'),
+                'trainers_details': request.data.get('trainers_details'),
+                'created_by_id': getattr(request.user, 'id', None),
+                'status': 'DRAFT',
+            }
+            try:
+                training = TrainingSchedule.objects.create(**training_data)
+            except IntegrityError as e:
+                if 'batch_no' in str(e).lower():
+                    return Response({
+                        'status_code': 400,
+                        'error': f'Batch "{batch_no}" already exists (concurrent creation detected)',
+                        'hint': 'Try again or use different batch number'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                raise
+            except Exception as e:
+                return Response({
+                    'status_code': 400,
+                    'error': f'Failed to create training: {str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        day_label = f"Day {day}"
+        session, created = TrainingSession.objects.get_or_create(
+            schedule=training,
+            day_label=day_label,
+            defaults={
+                'date': day_date,
+                'notes': day_notes,
+            }
+        )
+        if not created:
+            session.date = day_date
+            session.notes = day_notes
+            session.save()
+
+        # Handle media upload
+        uploaded_media = []
+        for media in media_files:
+            media_obj = TrainingSessionMedia.objects.create(
+                session=session,
+                image=media,
+                uploaded_by_id=uploaded_by if uploaded_by else getattr(request.user, 'id', None)
+            )
+            uploaded_media.append({
+                'id': media_obj.id,
+                'file_url': media_obj.image.url
+            })
+
+        return Response({
+            'status_code': 201 if created else 200,
+            'message': f'Training {day_label} {"created" if created else "updated"}',
+            'data': {
+                'id': training.id,
+                'batch_no': training.batch_no,
+                'organization_name': training.organization_name,
+                'state_id': training.state_id,
+                'district_id': training.district_id,
+                'day_created': day,
+                'total_days': training.sessions.count(),
+                'session': {
+                    'id': session.id,
+                    'schedule_id': training.id,
+                    'day_label': session.day_label,
+                    'date': str(session.date),
+                    'session_number': day,
+                    'uploaded_media': uploaded_media
+                }
+            }
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def create_daywise(self, request):
         """
         Create training day-by-day (progressive day-wise approach).
@@ -186,7 +344,9 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
         - Batch number MUST exist OR must be for Day 1 with state
         - If batch_no doesn't exist and day is 4 or 7 → ERROR
         
-        First day (creates new training with all fields):
+        SUPPORTED FORMATS:
+        
+        Format 1 - Direct parameters (explicit):
         {
             "state": 1,
             "district": 5,
@@ -199,13 +359,26 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
             "day_notes": "Opening ceremony"
         }
         
-        Subsequent days (adds to existing batch):
+        Format 2 - Sessions array (auto-extracted):
         {
+            "state": 1,
+            "district": 5,
             "batch_no": "FEB2026-MH-MUM-001",
-            "day": 4,
-            "day_date": "2026-03-18",
-            "day_notes": "Practical training"
+            "organization_name": "NCC Unit A",
+            "organization_type": "NCC",
+            "number_of_volunteers": 100,
+            "sessions": [
+                {
+                    "day_label": "Day 1",
+                    "date": "2026-03-15",
+                    "upload_option": "mandatory",
+                    "notes": "Opening ceremony"
+                }
+            ]
         }
+        
+        The endpoint auto-extracts "day" from day_label (e.g., "Day 1" → 1)
+        and "day_date" from the date field if not provided explicitly.
         """
         self._check_create_permission(request)
         
@@ -214,6 +387,25 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
         day_date = request.data.get('day_date')
         day_notes = request.data.get('day_notes', '')
         
+        # ✅ NEW: Auto-extract day and day_date from sessions array if not provided
+        sessions_array = request.data.get('sessions', [])
+        if sessions_array and not day:
+            try:
+                first_session = sessions_array[0]
+                day_label = first_session.get('day_label', '')
+                # Extract number from "Day 1" → 1, "Day 4" → 4, etc.
+                if day_label.startswith('Day '):
+                    day = int(day_label.split('Day ')[1])
+            except (IndexError, ValueError, TypeError):
+                pass
+        
+        if sessions_array and not day_date:
+            try:
+                first_session = sessions_array[0]
+                day_date = first_session.get('date')
+            except (IndexError, TypeError):
+                pass
+        
         # Validate required fields
         if not batch_no or not day or not day_date:
             return Response(
@@ -221,8 +413,8 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
                     'status_code': 400,
                     'errors': {
                         'batch_no': 'Required' if not batch_no else None,
-                        'day': 'Required (1, 4, or 7)' if not day else None,
-                        'day_date': 'Required (YYYY-MM-DD)' if not day_date else None,
+                        'day': 'Required (1, 4, or 7) - can be extracted from sessions[0].day_label' if not day else None,
+                        'day_date': 'Required (YYYY-MM-DD) - can be extracted from sessions[0].date' if not day_date else None,
                     }
                 },
                 status=status.HTTP_400_BAD_REQUEST
@@ -636,4 +828,166 @@ class TrainingScheduleViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK
         )
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def session_history(self, request):
+        """
+        Get training session history - with proper RBAC and geographic scope.
+        
+        RBAC RULES:
+        - SUPER_ADMIN/NDMA_ADMIN: See ALL trainings
+        - SDMA_ADMIN: Only trainings in their assigned STATE
+        - DDMA_NODAL_OFFICER: Only trainings in their assigned DISTRICT + STATE
+        - TRAINING_INSTITUTE/YOUTH_ORG_ADMIN: Only trainings in their STATE
+        
+        Returns paginated list with all training days and media:
+        
+        Query Parameters:
+        - page: Page number (default: 1)
+        - search: Search by batch number or organization name (optional)
+        - state_id: Filter by state ID (optional, auto-enforced for non-admins)
+        - district_id: Filter by district ID (optional, auto-enforced for DDMA)
+        - from_date: Filter sessions from date (YYYY-MM-DD) (optional)
+        - to_date: Filter sessions to date (YYYY-MM-DD) (optional)
+        - order_by: Sort by field (default: '-batch_no')
+        """
+        # ✅ Use get_queryset() for proper RBAC + geographic scope filtering
+        queryset = self.get_queryset()
+        
+        # ✅ Apply additional filters
+        search = request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(batch_no__icontains=search) | 
+                Q(organization_name__icontains=search)
+            )
+        
+        # ✅ State filter (respects RBAC - SDMA_ADMIN auto-filtered by state)
+        state_id = request.query_params.get('state_id')
+        if state_id:
+            try:
+                state_id_int = int(state_id)
+                # Validate user can view this state
+                user_role = getattr(request.user, 'user_role', None)
+                
+                if user_role == UserRoles.SDMA_ADMIN:
+                    # SDMA_ADMIN can only view their own state
+                    user_state_id = getattr(request.user, 'state_id', None)
+                    if user_state_id and hasattr(user_state_id, 'id'):
+                        user_state_id = user_state_id.id
+                    
+                    if state_id_int != user_state_id:
+                        # Return empty result if trying to access different state
+                        queryset = TrainingSchedule.objects.none()
+                    else:
+                        queryset = queryset.filter(state_id=state_id_int)
+                elif user_role == UserRoles.DDMA_NODAL_OFFICER:
+                    # DDMA_NODAL_OFFICER can only view their state
+                    user_state_id = getattr(request.user, 'state_id', None)
+                    if user_state_id and hasattr(user_state_id, 'id'):
+                        user_state_id = user_state_id.id
+                    
+                    if state_id_int != user_state_id:
+                        queryset = TrainingSchedule.objects.none()
+                    else:
+                        queryset = queryset.filter(state_id=state_id_int)
+                else:
+                    # Admins can view any state
+                    queryset = queryset.filter(state_id=state_id_int)
+            except (ValueError, TypeError):
+                pass
+        
+        # ✅ District filter (respects RBAC - DDMA auto-filtered by district)
+        district_id = request.query_params.get('district_id')
+        if district_id:
+            try:
+                district_id_int = int(district_id)
+                user_role = getattr(request.user, 'user_role', None)
+                
+                if user_role == UserRoles.DDMA_NODAL_OFFICER:
+                    # DDMA_NODAL_OFFICER can only view their district
+                    user_district_id = getattr(request.user, 'district_id', None)
+                    if user_district_id and hasattr(user_district_id, 'id'):
+                        user_district_id = user_district_id.id
+                    
+                    if district_id_int != user_district_id:
+                        queryset = TrainingSchedule.objects.none()
+                    else:
+                        queryset = queryset.filter(district_id=district_id_int)
+                elif user_role in UserRoles.ADMIN_ROLES:
+                    # Admins can view any district
+                    queryset = queryset.filter(district_id=district_id_int)
+                else:
+                    # Non-admin non-DDMA users can't filter by district
+                    # Already filtered by state in get_queryset()
+                    queryset = queryset.filter(district_id=district_id_int)
+            except (ValueError, TypeError):
+                pass
+        
+        # ✅ Date range filter
+        from_date = request.query_params.get('from_date')
+        if from_date:
+            try:
+                from_date_obj = datetime.strptime(from_date, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__date__gte=from_date_obj)
+            except (ValueError, TypeError):
+                pass
+        
+        to_date = request.query_params.get('to_date')
+        if to_date:
+            try:
+                to_date_obj = datetime.strptime(to_date, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__date__lte=to_date_obj)
+            except (ValueError, TypeError):
+                pass
+        
+        # ✅ Sorting (with security whitelist)
+        order_by = request.query_params.get('order_by', '-batch_no')
+        allowed_sorts = ['batch_no', '-batch_no', 'created_at', '-created_at', 'organization_name', '-organization_name']
+        if order_by not in allowed_sorts:
+            order_by = '-batch_no'
+        queryset = queryset.order_by(order_by)
+        
+        # ✅ Pagination
+        page_size = 10
+        try:
+            page_num = int(request.query_params.get('page', 1))
+            if page_num < 1:
+                page_num = 1
+        except (ValueError, TypeError):
+            page_num = 1
+        
+        total_count = queryset.count()
+        total_pages = (total_count + page_size - 1) // page_size
+        
+        start_idx = (page_num - 1) * page_size
+        end_idx = start_idx + page_size
+        
+        paginated_queryset = queryset[start_idx:end_idx]
+        
+        # ✅ Serialize with request context for absolute URLs
+        serializer = TrainingSessionHistorySerializer(
+            paginated_queryset, 
+            many=True,
+            context={'request': request}
+        )
+        
+        response_data = {
+            'status_code': 200,
+            'message': 'Training session history retrieved successfully',
+            'count': total_count,
+            'total_pages': total_pages,
+            'current_page': page_num,
+            'page_size': page_size,
+            'next': page_num + 1 if page_num < total_pages else None,
+            'previous': page_num - 1 if page_num > 1 else None,
+            'user_scope': {
+                'role': getattr(request.user, 'user_role', 'UNKNOWN'),
+                'state_id': request.user.state_id.id if (hasattr(request.user, 'state_id') and request.user.state_id and hasattr(request.user.state_id, 'id')) else getattr(request.user, 'state_id', None),
+                'district_id': request.user.district_id.id if (hasattr(request.user, 'district_id') and request.user.district_id and hasattr(request.user.district_id, 'id')) else getattr(request.user, 'district_id', None),
+            },
+            'data': serializer.data
+        }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
 
